@@ -1,12 +1,12 @@
 {
-  "name": "FLBTP — Ma journée",
+  "name": "Freyssinet-Laligand BTP — Ma journée",
   "short_name": "FLBTP",
   "start_url": "./#/accueil",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait",
   "background_color": "#F3F0E8",
-  "theme_color": "#1B1C1E",
+  "theme_color": "#2B2A2B",
   "lang": "fr",
   "icons": [
     { "src": "icone-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },

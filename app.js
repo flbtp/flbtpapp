@@ -12,7 +12,7 @@
  * Numéro affiché en bas de l'accueil et de l'écran de connexion.
  * À augmenter à chaque dépôt de nouveaux fichiers sur GitHub : c'est le seul numéro à changer.
  */
-const VERSION_APPLI = '10';
+const VERSION_APPLI = '11';
 
 // ---------------------------------------------------------------------------
 // Petits outils
@@ -302,8 +302,8 @@ async function ecranConnexion() {
   const dessiner = () => {
     if (!choisi) {
       APP().innerHTML = `
-        <div class="marque" aria-hidden="true"><span></span><span></span><span></span></div>
-        <div><h1>FLBTP</h1><p class="discret">Ma journée de chantier</p></div>
+        <img class="logo" src="logo.png" alt="Freyssinet-Laligand BTP">
+        <div><h1>Ma journée</h1><p class="discret">Saisie des heures de chantier</p></div>
         <div class="champ"><span class="etiquette">Qui es-tu ?</span>
           ${!personnes ? '<p class="discret">Connexion au serveur…</p>'
             : personnes.length ? `<div class="liste-noms">${personnes.map(p => `<button type="button" data-nom="${esc(p)}">${esc(p)}</button>`).join('')}</div>`
@@ -473,6 +473,7 @@ function dessinerAccueil(a, session) {
 
   APP().innerHTML = `
     <div class="entete">
+      <img class="embleme" src="embleme.png" alt="" aria-hidden="true">
       <div><p class="discret">Bonjour ${esc(session.prenom || session.personne)}</p><h1>${esc(dateLongue(a.date))}</h1></div>
       <button class="icone-btn" type="button" aria-label="Se déconnecter" id="sortir">${ICONES.sortie}</button>
     </div>

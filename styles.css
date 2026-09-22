@@ -2,14 +2,15 @@
 :root {
   --fond: #F3F0E8;
   --surface: #FFFFFF;
-  --encre: #1B1C1E;
-  --gris: #5A5C60;
+  --encre: #2B2A2B;          /* gris foncé du logo */
+  --gris: #585558;           /* gris du mot BTP */
   --trait: #D9D4C7;
   --creux: #EAE6DC;
   --jaune: #F2B01E;
   --jaune-pale: #FFF4D6;
-  --vert: #2E6B45;
-  --vert-pale: #E3EFE6;
+  --marque: #38AB4D;         /* vert du logo */
+  --vert: #1F7A34;           /* vert assombri : lisible en blanc dessus */
+  --vert-pale: #E4F2E6;
   --rouge: #A33A2B;
   --rouge-pale: #F6E1DD;
   --titre: 'Barlow Condensed', 'Arial Narrow', sans-serif;
@@ -39,9 +40,8 @@ p { margin: 0; }
   width: 48px; height: 48px; flex-shrink: 0; border: none; border-radius: 10px;
   background: var(--surface); color: var(--encre); display: grid; place-items: center; cursor: pointer;
 }
-.marque { display: flex; gap: 8px; }
-.marque span { width: 34px; height: 10px; background: var(--jaune); }
-.marque span:nth-child(2) { background: var(--encre); }
+.logo { width: 220px; max-width: 70%; height: auto; display: block; }
+.embleme { width: 34px; height: auto; flex-shrink: 0; }
 
 /* Blocs */
 .bloc { background: var(--surface); border-radius: 14px; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
@@ -51,6 +51,7 @@ p { margin: 0; }
 .pastille { padding: 5px 10px; border-radius: 6px; background: var(--fond); font-size: 14px; font-weight: 600; }
 .pastille.jaune { background: var(--jaune); }
 .pastille.vert { background: var(--vert-pale); color: var(--vert); }
+.pastille.marque { background: var(--marque); color: #fff; }
 .pastille.rouge { background: var(--rouge-pale); color: var(--rouge); }
 .pastille.attente { background: var(--jaune-pale); }
 .sep { border-top: 1px solid var(--trait); padding-top: 12px; }
@@ -115,6 +116,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .jour b { font-size: 13px; }
 .jour small { font-size: 12px; }
 .jour.ok { background: var(--vert-pale); color: var(--vert); }
+.barre i.fini { background: var(--marque); }
 .jour.saisie { background: var(--surface); color: var(--encre); }
 .jour.a-faire { background: var(--surface); color: var(--encre); border-color: var(--jaune); cursor: pointer; }
 .jour.signalee { background: var(--rouge-pale); color: var(--rouge); cursor: pointer; }

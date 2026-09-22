@@ -1,9 +1,9 @@
 /* Garde l'application sur le téléphone pour qu'elle s'ouvre sans réseau.
  * Les fichiers sont toujours pris sur le réseau en priorité : une nouvelle version arrive d'elle-même.
  * Ce nom de cache n'a PAS besoin de changer à chaque mise à jour (le numéro affiché est dans app.js). */
-const VERSION = 'flbtp-v5';
+const VERSION = 'flbtp-v6';
 const FICHIERS = ['./', 'index.html', 'styles.css', 'app.js', 'config.js', 'manifest.webmanifest',
-  'icone-192.png', 'icone-512.png', 'apple-touch-icon.png'];
+  'icone-192.png', 'icone-512.png', 'apple-touch-icon.png', 'logo.png', 'embleme.png'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(VERSION).then(c => c.addAll(FICHIERS)).then(() => self.skipWaiting()));
