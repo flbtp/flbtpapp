@@ -12,7 +12,7 @@
  * Numéro affiché en bas de l'accueil et de l'écran de connexion.
  * À augmenter à chaque dépôt de nouveaux fichiers sur GitHub : c'est le seul numéro à changer.
  */
-const VERSION_APPLI = '6';
+const VERSION_APPLI = '7';
 
 // ---------------------------------------------------------------------------
 // Petits outils
@@ -87,7 +87,6 @@ const ICONES = {
 class HorsReseau extends Error {}
 class RefusServeur extends Error {}
 
-const DELAI_MAX_MS = 30000;
 const LECTURES = ['accueil', 'equipe', 'rapport', 'referentiels', 'liste_personnes'];
 const enVol = new Map();
 
@@ -108,11 +107,32 @@ function appel(action, donnees = {}, idEnvoi) {
   return p;
 }
 
+/**
+ * Un appel Apps Script passe par deux adresses : script.google.com exécute, puis redirige vers
+ * script.googleusercontent.com où se trouve la réponse. La seconde échoue parfois ponctuellement.
+ * On relance donc UNE fois un appel qui échoue vite. Sans risque : les lectures ne modifient rien,
+ * et chaque envoi porte un identifiant (idEnvoi) que le serveur reconnaît s'il le reçoit deux fois.
+ */
+const DELAI_ESSAI_MS = 25000;
+
 async function appelServeur(action, donnees, idEnvoi) {
+  try {
+    return await unEssai(action, donnees, idEnvoi, 1);
+  } catch (e) {
+    if (!(e instanceof HorsReseau) || !e.relancable || !navigator.onLine) throw e;
+    await new Promise(ok => setTimeout(ok, 1200));
+    return unEssai(action, donnees, idEnvoi, 2);
+  }
+}
+
+function hote(url) { try { return new URL(url).hostname; } catch (e) { return '?'; } }
+
+async function unEssai(action, donnees, idEnvoi, essai) {
   const session = stock.lire('session');
   const ctrl = new AbortController();
-  const minuteur = setTimeout(() => ctrl.abort(), DELAI_MAX_MS);
+  const minuteur = setTimeout(() => ctrl.abort(), DELAI_ESSAI_MS);
   const debut = Date.now();
+  const nom = essai > 1 ? `${action} (2e essai)` : action;
   let rep, r;
   try {
     rep = await fetch(SERVEUR, {
@@ -122,23 +142,27 @@ async function appelServeur(action, donnees, idEnvoi) {
       body: JSON.stringify({ action, donnees, jeton: session && session.jeton, idEnvoi }),
       signal: ctrl.signal,
     });
-    if (!rep.ok) throw new HorsReseau(`Le serveur a renvoyé une erreur (${rep.status}).`);
+    if (!rep.ok) {
+      const err = new HorsReseau(`Le serveur a renvoyé une erreur ${rep.status}.`);
+      err.detail = `${rep.status} sur ${hote(rep.url)}`;
+      err.relancable = rep.status === 404 || rep.status === 429 || rep.status >= 500;
+      throw err;
+    }
     r = await rep.json();
   } catch (e) {
     let err;
     if (e instanceof HorsReseau) err = e;
-    else if (e.name === 'AbortError') err = new HorsReseau(`Le serveur n'a pas répondu en ${DELAI_MAX_MS / 1000} secondes.`);
-    else if (e instanceof SyntaxError) err = new HorsReseau("Le serveur a renvoyé une page d'erreur au lieu d'une réponse.");
-    // Une erreur Google (quota, exécution trop longue) arrive sous forme de page illisible par le navigateur :
-    // elle ressemble à une coupure réseau. Si le téléphone est bien en ligne, on le dit.
-    else if (navigator.onLine) err = new HorsReseau("Le serveur n'a pas répondu correctement.");
-    else err = new HorsReseau('Pas de réseau.');
-    tracer(action, debut, 'ÉCHEC — ' + err.message + (e.name && !(e instanceof HorsReseau) ? ` [${e.name}]` : ''));
+    else if (e.name === 'AbortError') { err = new HorsReseau(`Le serveur n'a pas répondu en ${DELAI_ESSAI_MS / 1000} secondes.`); err.detail = 'délai dépassé'; }
+    else if (e instanceof SyntaxError) { err = new HorsReseau("Le serveur a renvoyé une page d'erreur au lieu d'une réponse."); err.detail = `page d'erreur sur ${rep ? hote(rep.url) : '?'}`; err.relancable = true; }
+    // Une erreur Google arrive souvent sous forme de page illisible par le navigateur : elle ressemble à une coupure réseau.
+    else if (navigator.onLine) { err = new HorsReseau("Le serveur n'a pas répondu correctement."); err.detail = `requête bloquée (${e.name})`; err.relancable = true; }
+    else { err = new HorsReseau('Pas de réseau.'); err.detail = 'téléphone hors ligne'; }
+    tracer(nom, debut, 'ÉCHEC — ' + err.detail);
     throw err;
   } finally {
     clearTimeout(minuteur);
   }
-  tracer(action, debut, r.ok ? 'ok' : 'refus — ' + r.erreur);
+  tracer(nom, debut, r.ok ? 'ok' : 'refus — ' + r.erreur);
   if (!r.ok) {
     if (r.session) { deconnecter(); throw new RefusServeur(r.erreur); }
     throw new RefusServeur(r.erreur || 'Refusé par le serveur.');
@@ -1030,9 +1054,10 @@ ROUTES.diagnostic = function () {
       <div><h1>Diagnostic</h1><p class="discret">Version ${esc(VERSION_APPLI)} — ${navigator.onLine ? 'téléphone en ligne' : 'téléphone hors ligne'}</p></div>
     </div>
     <p class="discret">Les 30 derniers échanges avec le serveur, du plus récent au plus ancien. Fais une capture d'écran pour l'envoyer.</p>
+    <p class="discret" style="word-break:break-all;font-size:12px">Serveur : …${esc(SERVEUR.slice(-24))}</p>
     <section class="bloc">
       ${t.length ? t.map(x => `<div class="resume"><span>${esc(x.h)} · ${esc(x.action)}</span><span>${(x.ms / 1000).toFixed(1)} s</span></div>
-        <p class="discret" style="margin:-6px 0 4px;${x.issue === 'ok' ? '' : 'color:var(--rouge)'}">${esc(x.issue)}</p>`).join('') : '<p class="discret">Aucun échange enregistré.</p>'}
+        <p class="discret" style="margin:-6px 0 4px;${String(x.issue).startsWith('ok') ? '' : 'color:var(--rouge)'}">${esc(x.issue)}</p>`).join('') : '<p class="discret">Aucun échange enregistré.</p>'}
     </section>
     ${f.length ? `<div class="alerte jaune">${ICONES.horloge}<span>${f.length} envoi(s) en attente : ${esc(f.map(x => x.libelle).join(', '))}</span></div>` : ''}
     <div class="pied"><button class="btn btn-clair btn-petit" type="button" id="vider">Effacer le diagnostic</button></div>`;
