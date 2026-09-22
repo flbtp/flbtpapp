@@ -12,7 +12,7 @@
  * Numéro affiché en bas de l'accueil et de l'écran de connexion.
  * À augmenter à chaque dépôt de nouveaux fichiers sur GitHub : c'est le seul numéro à changer.
  */
-const VERSION_APPLI = '5';
+const VERSION_APPLI = '6';
 
 // ---------------------------------------------------------------------------
 // Petits outils
@@ -88,11 +88,31 @@ class HorsReseau extends Error {}
 class RefusServeur extends Error {}
 
 const DELAI_MAX_MS = 30000;
+const LECTURES = ['accueil', 'equipe', 'rapport', 'referentiels', 'liste_personnes'];
+const enVol = new Map();
 
-async function appel(action, donnees = {}, idEnvoi) {
+/** Garde les 30 derniers appels pour l'écran de diagnostic (appui sur le numéro de version). */
+function tracer(action, debut, issue) {
+  const t = stock.lire('diag', []);
+  t.unshift({ h: new Date().toLocaleTimeString('fr-FR'), action, ms: Date.now() - debut, issue });
+  stock.ecrire('diag', t.slice(0, 30));
+}
+
+/** Deux écrans qui demandent la même chose au même moment partagent le même appel au lieu d'en lancer deux. */
+function appel(action, donnees = {}, idEnvoi) {
+  if (!LECTURES.includes(action)) return appelServeur(action, donnees, idEnvoi);
+  const cle = action + JSON.stringify(donnees);
+  if (enVol.has(cle)) return enVol.get(cle);
+  const p = appelServeur(action, donnees, idEnvoi).finally(() => enVol.delete(cle));
+  enVol.set(cle, p);
+  return p;
+}
+
+async function appelServeur(action, donnees, idEnvoi) {
   const session = stock.lire('session');
   const ctrl = new AbortController();
   const minuteur = setTimeout(() => ctrl.abort(), DELAI_MAX_MS);
+  const debut = Date.now();
   let rep, r;
   try {
     rep = await fetch(SERVEUR, {
@@ -102,16 +122,23 @@ async function appel(action, donnees = {}, idEnvoi) {
       body: JSON.stringify({ action, donnees, jeton: session && session.jeton, idEnvoi }),
       signal: ctrl.signal,
     });
-    if (!rep.ok) throw new HorsReseau('Serveur injoignable.');
+    if (!rep.ok) throw new HorsReseau(`Le serveur a renvoyé une erreur (${rep.status}).`);
     r = await rep.json();
   } catch (e) {
-    if (e instanceof HorsReseau) throw e;
-    if (e.name === 'AbortError') throw new HorsReseau('Le serveur ne répond pas.');
-    if (e instanceof SyntaxError) throw new HorsReseau('Réponse du serveur illisible.');
-    throw new HorsReseau('Pas de réseau.');
+    let err;
+    if (e instanceof HorsReseau) err = e;
+    else if (e.name === 'AbortError') err = new HorsReseau(`Le serveur n'a pas répondu en ${DELAI_MAX_MS / 1000} secondes.`);
+    else if (e instanceof SyntaxError) err = new HorsReseau("Le serveur a renvoyé une page d'erreur au lieu d'une réponse.");
+    // Une erreur Google (quota, exécution trop longue) arrive sous forme de page illisible par le navigateur :
+    // elle ressemble à une coupure réseau. Si le téléphone est bien en ligne, on le dit.
+    else if (navigator.onLine) err = new HorsReseau("Le serveur n'a pas répondu correctement.");
+    else err = new HorsReseau('Pas de réseau.');
+    tracer(action, debut, 'ÉCHEC — ' + err.message + (e.name && !(e instanceof HorsReseau) ? ` [${e.name}]` : ''));
+    throw err;
   } finally {
     clearTimeout(minuteur);
   }
+  tracer(action, debut, r.ok ? 'ok' : 'refus — ' + r.erreur);
   if (!r.ok) {
     if (r.session) { deconnecter(); throw new RefusServeur(r.erreur); }
     throw new RefusServeur(r.erreur || 'Refusé par le serveur.');
@@ -187,6 +214,7 @@ function aller(chemin) { if (location.hash === '#' + chemin) route(); else locat
 window.addEventListener('hashchange', route);
 
 function route() {
+  clearTimeout(minuteurLent);
   const session = stock.lire('session');
   const [nom, param] = location.hash.replace(/^#\/?/, '').split('/');
   if (!session) return ecranConnexion();
@@ -204,9 +232,13 @@ function ecranCourant() {
   return () => location.hash === ici;
 }
 
+let minuteurLent = null;
 function chargement(texte = 'Chargement…') {
+  clearTimeout(minuteurLent);
+  const ecran = ecranCourant();
   APP().innerHTML = `<div class="chargement"><div class="centre"><p>${esc(texte)}</p><p class="discret" id="lent" hidden>Le serveur est lent à répondre, patiente encore un peu.</p></div></div>`;
-  setTimeout(() => { const l = $('#lent'); if (l) l.hidden = false; }, 4000);
+  // Ce minuteur ne concerne que CE chargement : il ne doit pas se déclencher sur l'écran suivant.
+  minuteurLent = setTimeout(() => { const l = $('#lent'); if (l && ecran()) l.hidden = false; }, 4000);
 }
 
 function deconnecter() {
@@ -425,7 +457,7 @@ function dessinerAccueil(a, session) {
             <b>${esc(jourCourt(s.date))}</b>${cls === 'ok' ? ICONES.ok : '<span style="height:18px"></span>'}<small>${esc(lib)}</small></button>`;
         }).join('')}
       </div>
-      <p class="version">Version ${esc(VERSION_APPLI)}</p>
+      <button type="button" class="version" onclick="aller('/diagnostic')">Version ${esc(VERSION_APPLI)}</button>
     </div>`;
   $('#sortir').onclick = () => { if (confirm('Se déconnecter de ce téléphone ?')) { stock.effacer('dernierNom'); deconnecter(); } };
   $$('[data-jour]').forEach(b => b.onclick = () => aller('/saisie/' + b.dataset.jour));
@@ -983,6 +1015,28 @@ ROUTES.interimaire = async function (date) {
     window.scrollTo(0, y);
   };
   dessiner();
+};
+
+// ---------------------------------------------------------------------------
+// Écran : diagnostic (appui sur le numéro de version)
+// ---------------------------------------------------------------------------
+
+ROUTES.diagnostic = function () {
+  const t = stock.lire('diag', []);
+  const f = file();
+  APP().innerHTML = `
+    <div class="entete">
+      <button class="retour" type="button" aria-label="Retour" onclick="aller('/accueil')">${ICONES.retour}</button>
+      <div><h1>Diagnostic</h1><p class="discret">Version ${esc(VERSION_APPLI)} — ${navigator.onLine ? 'téléphone en ligne' : 'téléphone hors ligne'}</p></div>
+    </div>
+    <p class="discret">Les 30 derniers échanges avec le serveur, du plus récent au plus ancien. Fais une capture d'écran pour l'envoyer.</p>
+    <section class="bloc">
+      ${t.length ? t.map(x => `<div class="resume"><span>${esc(x.h)} · ${esc(x.action)}</span><span>${(x.ms / 1000).toFixed(1)} s</span></div>
+        <p class="discret" style="margin:-6px 0 4px;${x.issue === 'ok' ? '' : 'color:var(--rouge)'}">${esc(x.issue)}</p>`).join('') : '<p class="discret">Aucun échange enregistré.</p>'}
+    </section>
+    ${f.length ? `<div class="alerte jaune">${ICONES.horloge}<span>${f.length} envoi(s) en attente : ${esc(f.map(x => x.libelle).join(', '))}</span></div>` : ''}
+    <div class="pied"><button class="btn btn-clair btn-petit" type="button" id="vider">Effacer le diagnostic</button></div>`;
+  $('#vider').onclick = () => { stock.effacer('diag'); route(); };
 };
 
 // ---------------------------------------------------------------------------

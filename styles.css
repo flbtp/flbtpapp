@@ -160,4 +160,4 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   @keyframes monte { from { opacity: 0; transform: translate(-50%, 8px); } }
 }
 
-.version { font-size: 13px; color: var(--gris); text-align: center; margin: 4px 0 0; }
+.version { font: inherit; font-size: 13px; color: var(--gris); text-align: center; margin: 4px auto 0; background: none; border: none; padding: 8px 12px; cursor: pointer; text-decoration: underline dotted; display: block; }
