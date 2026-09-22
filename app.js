@@ -12,7 +12,7 @@
  * Numéro affiché en bas de l'accueil et de l'écran de connexion.
  * À augmenter à chaque dépôt de nouveaux fichiers sur GitHub : c'est le seul numéro à changer.
  */
-const VERSION_APPLI = '8';
+const VERSION_APPLI = '9';
 
 // ---------------------------------------------------------------------------
 // Petits outils
@@ -492,6 +492,9 @@ function dessinerAccueil(a, session) {
 // Formulaire de journée (partagé par la saisie et l'ajout d'intérimaire)
 // ---------------------------------------------------------------------------
 
+/** Horaires les plus courants : proposés par défaut, toujours modifiables. */
+const HORAIRES_HABITUELS = { hEmbauche: '08:00', hPause: '12:00', hReprise: '13:30', hDebauche: '17:30' };
+
 function etatInitial(date, journee, bloc) {
   const j = journee || {};
   const chantiers = j.chantiers && j.chantiers.length ? j.chantiers : ((bloc && bloc.lieux) || []);
@@ -499,7 +502,10 @@ function etatInitial(date, journee, bloc) {
     date,
     chantiers: [...chantiers],
     lieuEmbauche: j.lieuEmbauche || chantiers[0] || '',
-    hEmbauche: j.hEmbauche || '', hPause: j.hPause || '', hReprise: j.hReprise || '', hDebauche: j.hDebauche || '',
+    hEmbauche: j.hEmbauche || HORAIRES_HABITUELS.hEmbauche,
+    hPause: j.hPause || HORAIRES_HABITUELS.hPause,
+    hReprise: j.hReprise || HORAIRES_HABITUELS.hReprise,
+    hDebauche: j.hDebauche || HORAIRES_HABITUELS.hDebauche,
     trajet: j.trajet || '',
     avecTaches: j.tachesSuppMin ? true : (journee ? false : null),
     tachesSupp: j.tachesSupp || '', tachesSuppMin: j.tachesSuppMin || '',
