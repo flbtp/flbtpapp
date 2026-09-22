@@ -300,6 +300,26 @@ async function ecranConnexion() {
 }
 
 // ---------------------------------------------------------------------------
+// Journées gardées sur le téléphone, par date (les 10 plus récentes)
+// ---------------------------------------------------------------------------
+
+function jourGarde(date) {
+  const acc = stock.lire('accueil');
+  if (acc && acc.date === date) return acc;
+  return stock.lire('jours', {})[date] || null;
+}
+
+function garderJour(a) {
+  if (!a || !a.date) return;
+  const jours = stock.lire('jours', {});
+  jours[a.date] = a;
+  const dates = Object.keys(jours).sort().reverse();
+  dates.slice(10).forEach(d => delete jours[d]);
+  stock.ecrire('jours', jours);
+  if (a.date === aujourdhui()) stock.ecrire('accueil', a);
+}
+
+// ---------------------------------------------------------------------------
 // Écran : accueil
 // ---------------------------------------------------------------------------
 
@@ -316,7 +336,7 @@ ROUTES.accueil = async function () {
   if (a) dessinerAccueil(a, session); else chargement();
   try {
     a = await appel('accueil', { date });
-    stock.ecrire('accueil', a);
+    garderJour(a);
     dessinerAccueil(a, session);
   } catch (e) {
     if (!a) {
@@ -554,16 +574,30 @@ function donneesJournee(e) {
 ROUTES.saisie = async function (date) {
   date = /^\d{4}-\d{2}-\d{2}$/.test(date || '') ? date : aujourdhui();
   chargement();
-  let a = stock.lire('accueil');
-  if (!a || a.date !== date) a = null;
+  let a = jourGarde(date);
   let ref;
-  try {
-    // Ce que le téléphone sait déjà (planning du jour, référentiels) suffit : on n'attend le serveur que s'il manque quelque chose.
-    [ref, a] = await Promise.all([
-      referentiels(),
-      a ? Promise.resolve(a) : appel('accueil', { date }).catch(() => null),
-    ]);
-  } catch (err) { return erreurEcran(err); }
+  try { ref = await referentiels(); } catch (err) { return erreurEcran(err); }
+  if (a) {
+    // Déjà connue du téléphone : affichage immédiat, et mise à jour discrète pour la prochaine fois.
+    appel('accueil', { date }).then(frais => {
+      garderJour(frais);
+      if (frais.journee && !frais.journee.modifiable && location.hash.includes(date)) {
+        toast('Cette journée vient d\'être validée.'); aller('/accueil');
+      }
+    }).catch(() => { /* on garde ce qu'on a */ });
+  } else {
+    try {
+      a = await appel('accueil', { date });
+      garderJour(a);
+    } catch (err) {
+      // Sans réseau, on laisse saisir la journée du jour. Pour un autre jour, on ne montre JAMAIS un formulaire vide :
+      // il ferait croire que les heures déjà envoyées sont perdues.
+      if (!(err instanceof HorsReseau && date === aujourdhui())) {
+        return erreurEcran(err, `Impossible de charger ta journée du ${dateLongue(date).toLowerCase()}. Tes heures déjà envoyées ne sont pas perdues : réessaie dans un instant.`);
+      }
+      a = null;
+    }
+  }
   if (a && a.journee && !a.journee.modifiable) { toast('Journée déjà validée.'); return aller('/accueil'); }
 
   const e = etatInitial(date, a && a.journee, a && a.bloc);
@@ -598,20 +632,25 @@ ROUTES.saisie = async function (date) {
   dessiner();
 };
 
-/** Met à jour l'accueil gardé sur le téléphone : le retour à l'accueil est instantané. */
+/** Met à jour ce que le téléphone garde : le retour à l'accueil et la réouverture du jour sont instantanés. */
 function memoriserJournee(date, e, r) {
-  const acc = stock.lire('accueil');
-  if (!acc || acc.date !== date) return;
   const [a, b, c, d] = [e.hEmbauche, e.hPause, e.hReprise, e.hDebauche].map(minutes);
-  acc.journee = (r.reponse && r.reponse.journee) || {
+  const journee = Object.assign((r.reponse && r.reponse.journee) || {
     date, chantiers: e.chantiers, lieuEmbauche: e.lieuEmbauche, hEmbauche: e.hEmbauche, hPause: e.hPause,
     hReprise: e.hReprise, hDebauche: e.hDebauche, total: duree((b - a) + (d - c)), trajet: e.trajet,
     tachesSupp: e.tachesSupp, tachesSuppMin: e.avecTaches ? e.tachesSuppMin : '', repas: e.repas,
     statut: 'SAISIE', modifiable: true,
-  };
-  acc.journee.enAttente = !!r.enAttente;
-  acc.semaine = (acc.semaine || []).map(s => (s.date === date ? { ...s, statut: 'SAISIE' } : s));
-  stock.ecrire('accueil', acc);
+  }, { enAttente: !!r.enAttente });
+
+  const jour = jourGarde(date);
+  if (jour) { jour.journee = journee; garderJour(jour); }
+
+  const acc = stock.lire('accueil');
+  if (acc) {
+    if (acc.date === date) acc.journee = journee;
+    acc.semaine = (acc.semaine || []).map(s => (s.date === date ? { ...s, statut: 'SAISIE' } : s));
+    stock.ecrire('accueil', acc);
+  }
 }
 
 // ---------------------------------------------------------------------------
