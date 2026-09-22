@@ -8,6 +8,12 @@
  */
 'use strict';
 
+/**
+ * Numéro affiché en bas de l'accueil et de l'écran de connexion.
+ * À augmenter à chaque dépôt de nouveaux fichiers sur GitHub : c'est le seul numéro à changer.
+ */
+const VERSION_APPLI = '5';
+
 // ---------------------------------------------------------------------------
 // Petits outils
 // ---------------------------------------------------------------------------
@@ -247,7 +253,8 @@ async function ecranConnexion() {
             : personnes.length ? `<div class="liste-noms">${personnes.map(p => `<button type="button" data-nom="${esc(p)}">${esc(p)}</button>`).join('')}</div>`
             : '<p class="discret">Aucune personne n\'a encore de code. Demande à Quentin.</p>'}
         </div>
-        ${erreur ? `<p class="erreur-champ">${esc(erreur)}</p>` : ''}`;
+        ${erreur ? `<p class="erreur-champ">${esc(erreur)}</p>` : ''}
+        <p class="version pied">Version ${esc(VERSION_APPLI)}</p>`;
       $$('[data-nom]').forEach(b => b.onclick = () => { choisi = b.dataset.nom; code = ''; erreur = ''; dessiner(); });
       return;
     }
@@ -418,6 +425,7 @@ function dessinerAccueil(a, session) {
             <b>${esc(jourCourt(s.date))}</b>${cls === 'ok' ? ICONES.ok : '<span style="height:18px"></span>'}<small>${esc(lib)}</small></button>`;
         }).join('')}
       </div>
+      <p class="version">Version ${esc(VERSION_APPLI)}</p>
     </div>`;
   $('#sortir').onclick = () => { if (confirm('Se déconnecter de ce téléphone ?')) { stock.effacer('dernierNom'); deconnecter(); } };
   $$('[data-jour]').forEach(b => b.onclick = () => aller('/saisie/' + b.dataset.jour));

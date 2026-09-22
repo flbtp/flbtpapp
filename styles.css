@@ -159,3 +159,5 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   .toast { animation: monte .2s ease-out; }
   @keyframes monte { from { opacity: 0; transform: translate(-50%, 8px); } }
 }
+
+.version { font-size: 13px; color: var(--gris); text-align: center; margin: 4px 0 0; }

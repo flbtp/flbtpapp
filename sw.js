@@ -1,7 +1,7 @@
 /* Garde l'application sur le téléphone pour qu'elle s'ouvre sans réseau.
- * À chaque mise à jour des fichiers, augmenter VERSION : les téléphones récupèrent la nouvelle version
- * à la prochaine ouverture avec du réseau. */
-const VERSION = 'flbtp-v4';
+ * Les fichiers sont toujours pris sur le réseau en priorité : une nouvelle version arrive d'elle-même.
+ * Ce nom de cache n'a PAS besoin de changer à chaque mise à jour (le numéro affiché est dans app.js). */
+const VERSION = 'flbtp-v5';
 const FICHIERS = ['./', 'index.html', 'styles.css', 'app.js', 'config.js', 'manifest.webmanifest',
   'icone-192.png', 'icone-512.png', 'apple-touch-icon.png'];
 
