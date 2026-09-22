@@ -12,7 +12,7 @@
  * Numéro affiché en bas de l'accueil et de l'écran de connexion.
  * À augmenter à chaque dépôt de nouveaux fichiers sur GitHub : c'est le seul numéro à changer.
  */
-const VERSION_APPLI = '9';
+const VERSION_APPLI = '10';
 
 // ---------------------------------------------------------------------------
 // Petits outils
@@ -435,6 +435,28 @@ ROUTES.accueil = async function () {
   viderFile();
 };
 
+/** Ce que le chef doit voir sans ouvrir d'écran : ce qui l'attend, et ce qui est déjà fait. */
+function resumeChef(a, moi) {
+  const c = a.chef || { aValider: 0, manquants: [], validees: 0, rapportEnvoye: false };
+  const lignes = [];
+  if (c.aValider) lignes.push(`<b>${c.aValider} journée${c.aValider > 1 ? 's' : ''} à valider.</b>`);
+  const autres = c.manquants.filter(n => n !== moi);
+  if (c.manquants.includes(moi)) lignes.push("Ta propre journée n'est pas encore saisie.");
+  if (autres.length) lignes.push(`Pas encore saisie : ${esc(autres.join(', '))}.`);
+  if (!c.rapportEnvoye) lignes.push('Rapport de chantier pas encore envoyé.');
+  const rienAFaire = !lignes.length;
+  if (rienAFaire) lignes.push(`Équipe validée (${c.validees}) et rapport envoyé. Rien à faire.`);
+
+  return `
+    <div class="alerte ${rienAFaire ? 'vert' : (c.aValider ? 'jaune' : 'rouge')}">
+      ${rienAFaire ? ICONES.ok : ICONES.attention}<span>${lignes.join('<br>')}</span>
+    </div>
+    <div class="duo">
+      <button class="btn ${c.rapportEnvoye ? 'btn-sombre' : 'btn-principal'} btn-petit" type="button" onclick="aller('/rapport/${a.date}')">Rapport de chantier</button>
+      <button class="btn ${c.aValider ? 'btn-principal' : 'btn-sombre'} btn-petit" type="button" onclick="aller('/equipe/${a.date}')">Valider mon équipe${c.aValider ? ` (${c.aValider})` : ''}</button>
+    </div>`;
+}
+
 function dessinerAccueil(a, session) {
   const j = a.journee;
   const refus = stock.lire('refus', []);
@@ -466,11 +488,7 @@ function dessinerAccueil(a, session) {
       : `<section class="bloc"><p>${a.planningTrouve ? "Tu n'es pas au planning aujourd'hui." : "Le planning du jour n'est pas encore disponible."}</p>
          <p class="discret">Si tu as travaillé, saisis quand même ta journée.</p></section>`}
     ${action}
-    ${a.estResponsable ? `
-      <div class="duo">
-        <button class="btn btn-sombre btn-petit" type="button" onclick="aller('/rapport/${a.date}')">Rapport de chantier</button>
-        <button class="btn btn-sombre btn-petit" type="button" onclick="aller('/equipe/${a.date}')">Valider mon équipe</button>
-      </div>` : ''}
+    ${a.estResponsable ? resumeChef(a, session.personne) : ''}
     <div class="pied">
       <span class="sous">Ma semaine</span>
       <div class="semaine">
