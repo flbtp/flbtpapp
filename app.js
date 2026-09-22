@@ -12,7 +12,7 @@
  * Numéro affiché en bas de l'accueil et de l'écran de connexion.
  * À augmenter à chaque dépôt de nouveaux fichiers sur GitHub : c'est le seul numéro à changer.
  */
-const VERSION_APPLI = '11';
+const VERSION_APPLI = '12';
 
 // ---------------------------------------------------------------------------
 // Petits outils
@@ -385,6 +385,25 @@ function jourGarde(date) {
   const acc = stock.lire('accueil');
   if (acc && acc.date === date) return acc;
   return stock.lire('jours', {})[date] || null;
+}
+
+/**
+ * Corrige tout de suite le résumé du chef gardé sur le téléphone, pour que l'accueil affiche
+ * le bon état sans attendre le serveur (qui est redemandé juste après, via oublierJour).
+ */
+function majChef(date, modif) {
+  const acc = stock.lire('accueil');
+  if (!acc || acc.date !== date || !acc.chef) return;
+  Object.assign(acc.chef, modif);
+  stock.ecrire('accueil', acc);
+}
+
+/** Après une action qui change l'état du jour, la copie du téléphone doit être redemandée. */
+function oublierJour(date) {
+  const jours = stock.lire('jours', {});
+  if (jours[date]) { jours[date]._recu = 0; stock.ecrire('jours', jours); }
+  const acc = stock.lire('accueil');
+  if (acc && acc.date === date) { acc._recu = 0; stock.ecrire('accueil', acc); }
 }
 
 function garderJour(a) {
@@ -829,11 +848,14 @@ ROUTES.rapport = async function (date) {
 
   const dessiner = () => {
     const y = window.scrollY;
+    const envoye = !!(d.rapport && d.rapport.statut === 'ENVOYE');
     APP().innerHTML = `
       <div class="entete">
         <button class="retour" type="button" aria-label="Retour" onclick="history.back()">${ICONES.retour}</button>
         <div><h1>Rapport de chantier</h1><p class="discret">${esc(d.bloc.villes.join(' + '))} — ${esc(dateLongue(date))}</p></div>
       </div>
+      ${envoye ? `<div class="alerte vert">${ICONES.ok}<span>Rapport envoyé. Tu peux le compléter et le renvoyer autant de fois que nécessaire.</span></div>`
+        : `<div class="alerte jaune">${ICONES.attention}<span>Rapport pas encore envoyé. Le bouton en bas l'envoie, même s'il n'y a que les repas : l'avancement et les matériaux peuvent rester vides.</span></div>`}
 
       <section class="bloc">
         <h2>Restaurant</h2>
@@ -882,7 +904,7 @@ ROUTES.rapport = async function (date) {
         <textarea id="remarques" placeholder="Ex. redescendu 4,5 m3 de 10/14 au dépôt">${esc(e.remarques)}</textarea>
       </section>
       <p class="erreur-champ" id="erreur" role="alert"></p>
-      <div class="pied"><button class="btn btn-principal" type="button" id="envoyer">Envoyer le rapport</button></div>`;
+      <div class="pied"><button class="btn btn-principal" type="button" id="envoyer">${envoye ? 'Renvoyer le rapport' : 'Envoyer le rapport'}</button></div>`;
 
     $('#resto').oninput = ev => { e.restaurant = ev.target.value; };
     $('#remarques').oninput = ev => { e.remarques = ev.target.value; };
@@ -927,8 +949,10 @@ ROUTES.rapport = async function (date) {
         date, restaurant: e.restaurant.trim(), repasPayes: e.repasPayes, remarques: e.remarques.trim(),
         avancement: e.avancement, materiaux: e.materiaux.map(m => ({ ...m, quantite: String(m.quantite).replace(',', '.') })),
       }, `Rapport du ${dateLongue(date)}`);
+      if (!r.enAttente) majChef(date, { rapportEnvoye: true });
+      oublierJour(date);
       toast(r.enAttente ? 'Rapport gardé, il partira avec le réseau.' : 'Rapport envoyé.');
-      aller('/equipe/' + date);
+      aller('/accueil');
     } catch (err) {
       bouton.disabled = false; bouton.textContent = 'Envoyer le rapport';
       $('#erreur').textContent = err.message;
@@ -1014,6 +1038,12 @@ ROUTES.equipe = async function (date) {
       for (const p of personnes) await appel('valider', { date, personne: p, decision, motif });
       delete signalement[personnes[0]];
       d = await appel('equipe', { date });
+      majChef(date, {
+        aValider: d.membres.filter(m => m.journee && m.journee.statut === 'SAISIE').length,
+        manquants: d.manquants,
+        validees: d.membres.filter(m => m.journee && m.journee.statut !== 'SAISIE').length,
+      });
+      oublierJour(date);
       toast(decision === 'VALIDER' ? (personnes.length > 1 ? 'Journées validées.' : 'Journée validée.') : 'Signalement envoyé.');
     } catch (err) {
       toast(err instanceof HorsReseau ? 'Pas de réseau : réessaie quand ça capte.' : err.message);
@@ -1054,6 +1084,7 @@ ROUTES.interimaire = async function (date) {
       const bouton = $('#envoyer'); bouton.disabled = true; bouton.textContent = 'Envoi…';
       try {
         const r = await envoyer('enregistrer_interimaire', donneesJournee(e), `Intérimaire ${e.nomInterimaire}`);
+        oublierJour(date);
         toast(r.enAttente ? 'Gardée, partira avec le réseau.' : 'Journée enregistrée.');
         aller('/equipe/' + date);
       } catch (err) {
