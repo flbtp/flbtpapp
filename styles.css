@@ -19,12 +19,22 @@
 }
 *, *::before, *::after { box-sizing: border-box; }
 html { -webkit-text-size-adjust: 100%; }
+html { height: 100%; }
 body {
   margin: 0; background: var(--fond); color: var(--encre);
   font-family: var(--texte); font-size: 17px; line-height: 1.4;
-  padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px);
 }
-.app { max-width: 520px; margin: 0 auto; padding: 24px 18px 40px; display: flex; flex-direction: column; gap: 20px; min-height: 100vh; }
+/*
+ * Les marges de sécurité (encoche, barre du bas) sont DANS .app et non sur le corps de la page :
+ * sinon elles s'ajoutent à la hauteur d'écran et font défiler un écran pourtant vide au milieu.
+ * dvh tient compte des barres du navigateur qui apparaissent et disparaissent au défilement.
+ */
+.app {
+  max-width: 520px; margin: 0 auto; display: flex; flex-direction: column; gap: 20px;
+  padding: calc(24px + env(safe-area-inset-top, 0px)) 18px calc(28px + env(safe-area-inset-bottom, 0px));
+  min-height: 100vh;
+  min-height: 100dvh;
+}
 
 h1, h2 { margin: 0; }
 h1 { font-family: var(--titre); font-weight: 700; font-size: 32px; line-height: 1.05; }
@@ -148,6 +158,8 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .alerte.rouge { background: var(--rouge-pale); }
 .alerte.vert { background: var(--vert-pale); color: var(--vert); }
 .bandeau { position: sticky; top: 0; z-index: 10; background: var(--encre); color: #fff; font-size: 14px; font-weight: 600; padding: 8px 16px; padding-top: calc(8px + env(safe-area-inset-top, 0px)); text-align: center; }
+/* Quand le bandeau est affiché, il occupe le haut : .app n'a plus besoin de la marge d'encoche. */
+.bandeau:not([hidden]) + .app { padding-top: 16px; min-height: calc(100dvh - 40px); }
 .toast { position: fixed; left: 50%; bottom: calc(20px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); background: var(--encre); color: #fff; padding: 12px 18px; border-radius: 10px; font-weight: 600; max-width: calc(100% - 32px); z-index: 20; }
 .erreur-champ { color: var(--rouge); font-weight: 600; font-size: 15px; }
 .chargement { display: grid; place-items: center; min-height: 50vh; color: var(--gris); }
