@@ -189,6 +189,15 @@ function route() {
   f(param);
 }
 
+/**
+ * Un écran qui attend le serveur ne doit se dessiner que si l'utilisateur est toujours dessus.
+ * Sinon une réponse tardive redessine l'écran quitté par-dessus celui où l'on est.
+ */
+function ecranCourant() {
+  const ici = location.hash;
+  return () => location.hash === ici;
+}
+
 function chargement(texte = 'Chargement…') {
   APP().innerHTML = `<div class="chargement"><div class="centre"><p>${esc(texte)}</p><p class="discret" id="lent" hidden>Le serveur est lent à répondre, patiente encore un peu.</p></div></div>`;
   setTimeout(() => { const l = $('#lent'); if (l) l.hidden = false; }, 4000);
@@ -204,12 +213,18 @@ function deconnecter() {
 // Référentiels (gardés sur le téléphone pour fonctionner sans réseau)
 // ---------------------------------------------------------------------------
 
+const SIX_HEURES = 6 * 3600 * 1000;
+
+/** Communes, trajets, repas : changent rarement. Redemandés au serveur au plus toutes les 6 heures. */
 async function referentiels() {
   const garde = stock.lire('ref');
-  const frais = appel('referentiels').then(r => { stock.ecrire('ref', r); return r; });
+  if (garde && Date.now() - (garde._recu || 0) < SIX_HEURES) return garde;
+  const frais = appel('referentiels').then(r => { r._recu = Date.now(); stock.ecrire('ref', r); return r; });
   if (garde) { frais.catch(() => { /* on garde la version du téléphone */ }); return garde; }
   return frais;
 }
+
+function age(donnee) { return Date.now() - ((donnee && donnee._recu) || 0); }
 
 // ---------------------------------------------------------------------------
 // Écran : connexion
@@ -293,7 +308,7 @@ async function ecranConnexion() {
     const r = await appel('liste_personnes');
     personnes = r.personnes;
     stock.ecrire('personnes', personnes);
-    if (!choisi) dessiner();
+    if (!choisi && !stock.lire('session')) dessiner();
   } catch (e) {
     if (!personnes) { erreur = e instanceof HorsReseau ? 'Connexion au serveur impossible. Vérifie ton réseau et réessaie.' : e.message; if (!choisi) dessiner(); }
   }
@@ -311,6 +326,7 @@ function jourGarde(date) {
 
 function garderJour(a) {
   if (!a || !a.date) return;
+  if (!a._recu) a._recu = Date.now();
   const jours = stock.lire('jours', {});
   jours[a.date] = a;
   const dates = Object.keys(jours).sort().reverse();
@@ -329,17 +345,21 @@ const LIBELLES_STATUT = {
 };
 
 ROUTES.accueil = async function () {
+  const toujoursIci = ecranCourant();
   const session = stock.lire('session');
   const date = aujourdhui();
   let a = stock.lire('accueil');
   if (a && a.date !== date) a = null;
   if (a) dessinerAccueil(a, session); else chargement();
+  if (a && age(a) < 90 * 1000) { viderFile(); return; }        // à jour : inutile de redemander
   try {
-    a = await appel('accueil', { date });
-    garderJour(a);
-    dessinerAccueil(a, session);
+    const frais = await appel('accueil', { date });
+    frais._recu = Date.now();
+    garderJour(frais);
+    if (toujoursIci()) dessinerAccueil(frais, session);
+    a = frais;
   } catch (e) {
-    if (!a) {
+    if (!a && toujoursIci()) {
       const texte = e instanceof HorsReseau
         ? `${e.message} Le planning n'a pas pu être chargé, mais tu peux quand même saisir ta journée : elle partira dès que possible.`
         : e.message;
@@ -573,23 +593,26 @@ function donneesJournee(e) {
 
 ROUTES.saisie = async function (date) {
   date = /^\d{4}-\d{2}-\d{2}$/.test(date || '') ? date : aujourdhui();
+  const toujoursIci = ecranCourant();
   chargement();
   let a = jourGarde(date);
   let ref;
-  try { ref = await referentiels(); } catch (err) { return erreurEcran(err); }
+  try { ref = await referentiels(); } catch (err) { if (toujoursIci()) erreurEcran(err); return; }
+  if (!toujoursIci()) return;
   if (a) {
-    // Déjà connue du téléphone : affichage immédiat, et mise à jour discrète pour la prochaine fois.
-    appel('accueil', { date }).then(frais => {
-      garderJour(frais);
-      if (frais.journee && !frais.journee.modifiable && location.hash.includes(date)) {
-        toast('Cette journée vient d\'être validée.'); aller('/accueil');
-      }
-    }).catch(() => { /* on garde ce qu'on a */ });
+    // Déjà connue du téléphone : affichage immédiat. Mise à jour discrète seulement si la copie date de plus de 5 minutes.
+    if (age(a) > 5 * 60 * 1000) {
+      appel('accueil', { date }).then(frais => { frais._recu = Date.now(); garderJour(frais); })
+        .catch(() => { /* on garde ce qu'on a */ });
+    }
   } else {
     try {
       a = await appel('accueil', { date });
+      a._recu = Date.now();
       garderJour(a);
+      if (!toujoursIci()) return;
     } catch (err) {
+      if (!toujoursIci()) return;
       // Sans réseau, on laisse saisir la journée du jour. Pour un autre jour, on ne montre JAMAIS un formulaire vide :
       // il ferait croire que les heures déjà envoyées sont perdues.
       if (!(err instanceof HorsReseau && date === aujourdhui())) {
@@ -699,9 +722,11 @@ async function redimensionner(fichier, cote = 1600, qualite = 0.78) {
 
 ROUTES.rapport = async function (date) {
   date = /^\d{4}-\d{2}-\d{2}$/.test(date || '') ? date : aujourdhui();
+  const toujoursIci = ecranCourant();
   chargement();
   let d;
-  try { d = await appel('rapport', { date }); } catch (err) { return erreurEcran(err, "Le rapport a besoin du réseau pour s'ouvrir."); }
+  try { d = await appel('rapport', { date }); } catch (err) { if (toujoursIci()) erreurEcran(err, "Le rapport a besoin du réseau pour s'ouvrir."); return; }
+  if (!toujoursIci()) return;
 
   const e = {
     restaurant: (d.rapport && d.rapport.restaurant) || '',
@@ -829,9 +854,11 @@ ROUTES.rapport = async function (date) {
 
 ROUTES.equipe = async function (date) {
   date = /^\d{4}-\d{2}-\d{2}$/.test(date || '') ? date : aujourdhui();
+  const toujoursIci = ecranCourant();
   chargement();
   let d;
-  try { d = await appel('equipe', { date }); } catch (err) { return erreurEcran(err, 'La validation a besoin du réseau.'); }
+  try { d = await appel('equipe', { date }); } catch (err) { if (toujoursIci()) erreurEcran(err, 'La validation a besoin du réseau.'); return; }
+  if (!toujoursIci()) return;
   const signalement = {};
 
   const carte = m => {
@@ -902,7 +929,7 @@ ROUTES.equipe = async function (date) {
     } catch (err) {
       toast(err instanceof HorsReseau ? 'Pas de réseau : réessaie quand ça capte.' : err.message);
     }
-    dessiner();
+    if (toujoursIci()) dessiner();
   };
   dessiner();
 };
@@ -913,9 +940,14 @@ ROUTES.equipe = async function (date) {
 
 ROUTES.interimaire = async function (date) {
   date = /^\d{4}-\d{2}-\d{2}$/.test(date || '') ? date : aujourdhui();
+  const toujoursIci = ecranCourant();
   chargement();
-  let ref, a;
-  try { ref = await referentiels(); a = await appel('accueil', { date }); } catch (err) { return erreurEcran(err); }
+  let ref, a = jourGarde(date);
+  try {
+    ref = await referentiels();
+    if (!a) { a = await appel('accueil', { date }); a._recu = Date.now(); garderJour(a); }
+  } catch (err) { if (toujoursIci()) erreurEcran(err); return; }
+  if (!toujoursIci()) return;
   const e = etatInitial(date, null, a.bloc);
   const dessiner = () => {
     const y = window.scrollY;
