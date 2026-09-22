@@ -81,21 +81,31 @@ const ICONES = {
 class HorsReseau extends Error {}
 class RefusServeur extends Error {}
 
+const DELAI_MAX_MS = 30000;
+
 async function appel(action, donnees = {}, idEnvoi) {
   const session = stock.lire('session');
-  let rep;
+  const ctrl = new AbortController();
+  const minuteur = setTimeout(() => ctrl.abort(), DELAI_MAX_MS);
+  let rep, r;
   try {
     rep = await fetch(SERVEUR, {
       method: 'POST',
       // text/plain : évite la requête préalable CORS, que le serveur Google ne sait pas traiter.
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify({ action, donnees, jeton: session && session.jeton, idEnvoi }),
+      signal: ctrl.signal,
     });
+    if (!rep.ok) throw new HorsReseau('Serveur injoignable.');
+    r = await rep.json();
   } catch (e) {
+    if (e instanceof HorsReseau) throw e;
+    if (e.name === 'AbortError') throw new HorsReseau('Le serveur ne répond pas.');
+    if (e instanceof SyntaxError) throw new HorsReseau('Réponse du serveur illisible.');
     throw new HorsReseau('Pas de réseau.');
+  } finally {
+    clearTimeout(minuteur);
   }
-  if (!rep.ok) throw new HorsReseau('Serveur injoignable.');
-  const r = await rep.json();
   if (!r.ok) {
     if (r.session) { deconnecter(); throw new RefusServeur(r.erreur); }
     throw new RefusServeur(r.erreur || 'Refusé par le serveur.');
@@ -180,7 +190,8 @@ function route() {
 }
 
 function chargement(texte = 'Chargement…') {
-  APP().innerHTML = `<div class="chargement"><p>${esc(texte)}</p></div>`;
+  APP().innerHTML = `<div class="chargement"><div class="centre"><p>${esc(texte)}</p><p class="discret" id="lent" hidden>Le serveur est lent à répondre, patiente encore un peu.</p></div></div>`;
+  setTimeout(() => { const l = $('#lent'); if (l) l.hidden = false; }, 4000);
 }
 
 function deconnecter() {
@@ -194,15 +205,10 @@ function deconnecter() {
 // ---------------------------------------------------------------------------
 
 async function referentiels() {
-  try {
-    const r = await appel('referentiels');
-    stock.ecrire('ref', r);
-    return r;
-  } catch (e) {
-    const r = stock.lire('ref');
-    if (r) return r;
-    throw e;
-  }
+  const garde = stock.lire('ref');
+  const frais = appel('referentiels').then(r => { stock.ecrire('ref', r); return r; });
+  if (garde) { frais.catch(() => { /* on garde la version du téléphone */ }); return garde; }
+  return frais;
 }
 
 // ---------------------------------------------------------------------------
@@ -213,6 +219,8 @@ async function ecranConnexion() {
   let personnes = stock.lire('personnes');
   let choisi = stock.lire('dernierNom');
   let code = '';
+  let enCours = false;
+  let erreur = '';
 
   const dessiner = () => {
     if (!choisi) {
@@ -220,15 +228,18 @@ async function ecranConnexion() {
         <div class="marque" aria-hidden="true"><span></span><span></span><span></span></div>
         <div><h1>FLBTP</h1><p class="discret">Ma journée de chantier</p></div>
         <div class="champ"><span class="etiquette">Qui es-tu ?</span>
-          ${personnes ? `<div class="liste-noms">${personnes.map(p => `<button type="button" data-nom="${esc(p)}">${esc(p)}</button>`).join('')}</div>`
-            : '<p class="discret">Connexion au serveur…</p>'}
-        </div>`;
-      $$('[data-nom]').forEach(b => b.onclick = () => { choisi = b.dataset.nom; code = ''; dessiner(); });
+          ${!personnes ? '<p class="discret">Connexion au serveur…</p>'
+            : personnes.length ? `<div class="liste-noms">${personnes.map(p => `<button type="button" data-nom="${esc(p)}">${esc(p)}</button>`).join('')}</div>`
+            : '<p class="discret">Aucune personne n\'a encore de code. Demande à Quentin.</p>'}
+        </div>
+        ${erreur ? `<p class="erreur-champ">${esc(erreur)}</p>` : ''}`;
+      $$('[data-nom]').forEach(b => b.onclick = () => { choisi = b.dataset.nom; code = ''; erreur = ''; dessiner(); });
       return;
     }
+    const complet = code.length === 4;
     APP().innerHTML = `
       <div class="entete">
-        <button class="retour" type="button" aria-label="Changer de nom" id="changer">${ICONES.retour}</button>
+        <button class="retour" type="button" aria-label="Changer de nom" id="changer" ${enCours ? 'disabled' : ''}>${ICONES.retour}</button>
         <div><p class="discret">Bonjour</p><h1>${esc(choisi)}</h1></div>
       </div>
       <div class="champ">
@@ -236,33 +247,44 @@ async function ecranConnexion() {
         <div class="cases-code" aria-labelledby="lib-code">
           ${[0, 1, 2, 3].map(i => `<div class="${i < code.length ? 'pleine' : (i === code.length ? 'active' : '')}">${i < code.length ? '•' : ''}</div>`).join('')}
         </div>
-        <p class="discret">Donné par Quentin. Pas le tien ? Touche la flèche.</p>
-        <p class="erreur-champ" id="erreur" role="alert"></p>
+        <p class="discret">Donné par Quentin. Pas ton nom ? Touche la flèche.</p>
+        <p class="erreur-champ" id="erreur" role="alert">${esc(erreur)}</p>
       </div>
-      <div class="clavier pied">
-        ${[1, 2, 3, 4, 5, 6, 7, 8, 9].map(n => `<button type="button" data-c="${n}">${n}</button>`).join('')}
-        <button type="button" class="vide" tabindex="-1" aria-hidden="true"></button>
-        <button type="button" data-c="0">0</button>
-        <button type="button" data-c="x" aria-label="Effacer">⌫</button>
+      <div class="pied">
+        <div class="clavier" ${enCours ? 'aria-disabled="true" style="opacity:.4;pointer-events:none"' : ''}>
+          ${[1, 2, 3, 4, 5, 6, 7, 8, 9].map(n => `<button type="button" data-c="${n}">${n}</button>`).join('')}
+          <button type="button" class="vide" tabindex="-1" aria-hidden="true"></button>
+          <button type="button" data-c="0">0</button>
+          <button type="button" data-c="x" aria-label="Effacer">⌫</button>
+        </div>
+        <button class="btn btn-principal" type="button" id="valider" ${complet && !enCours ? '' : 'disabled'}>
+          ${enCours ? 'Vérification du code…' : 'Se connecter'}</button>
       </div>`;
-    $('#changer').onclick = () => { choisi = null; stock.effacer('dernierNom'); dessiner(); };
+    $('#changer').onclick = () => { choisi = null; code = ''; erreur = ''; stock.effacer('dernierNom'); dessiner(); };
     $$('[data-c]').forEach(b => b.onclick = () => taper(b.dataset.c));
+    $('#valider').onclick = valider;
   };
 
-  const taper = async c => {
-    if (c === 'x') { code = code.slice(0, -1); dessiner(); return; }
-    if (code.length >= 4) return;
-    code += c; dessiner();
-    if (code.length === 4) {
-      try {
-        const r = await appel('connexion', { personne: choisi, code });
-        stock.ecrire('session', { jeton: r.jeton, personne: r.personne, type: r.type, prenom: r.prenom });
-        stock.ecrire('dernierNom', choisi);
-        aller('/accueil');
-      } catch (e) {
-        code = ''; dessiner();
-        $('#erreur').textContent = e instanceof HorsReseau ? 'Pas de réseau : la première connexion en a besoin.' : e.message;
-      }
+  const taper = c => {
+    if (enCours) return;
+    erreur = '';
+    if (c === 'x') code = code.slice(0, -1);
+    else if (code.length < 4) code += c;
+    dessiner();
+  };
+
+  const valider = async () => {
+    if (enCours || code.length !== 4) return;
+    enCours = true; dessiner();
+    try {
+      const r = await appel('connexion', { personne: choisi, code });
+      stock.ecrire('session', { jeton: r.jeton, personne: r.personne, type: r.type, prenom: r.prenom });
+      stock.ecrire('dernierNom', choisi);
+      aller('/accueil');
+    } catch (e) {
+      enCours = false; code = '';
+      erreur = e instanceof HorsReseau ? 'Connexion au serveur impossible. Vérifie ton réseau et réessaie.' : e.message;
+      dessiner();
     }
   };
 
@@ -273,7 +295,7 @@ async function ecranConnexion() {
     stock.ecrire('personnes', personnes);
     if (!choisi) dessiner();
   } catch (e) {
-    if (!personnes) APP().insertAdjacentHTML('beforeend', `<p class="erreur-champ">${esc(e instanceof HorsReseau ? 'Pas de réseau : la première connexion en a besoin.' : e.message)}</p>`);
+    if (!personnes) { erreur = e instanceof HorsReseau ? 'Connexion au serveur impossible. Vérifie ton réseau et réessaie.' : e.message; if (!choisi) dessiner(); }
   }
 }
 
@@ -298,9 +320,12 @@ ROUTES.accueil = async function () {
     dessinerAccueil(a, session);
   } catch (e) {
     if (!a) {
+      const texte = e instanceof HorsReseau
+        ? `${e.message} Le planning n'a pas pu être chargé, mais tu peux quand même saisir ta journée : elle partira dès que possible.`
+        : e.message;
       APP().innerHTML = `
         <div class="entete"><div><p class="discret">Bonjour ${esc(session.prenom || session.personne)}</p><h1>${esc(dateLongue(date))}</h1></div></div>
-        <div class="alerte jaune">${ICONES.horsReseau}<span>Pas de réseau pour charger le planning. Tu peux quand même saisir ta journée : elle partira dès que ça capte.</span></div>
+        <div class="alerte jaune">${ICONES.horsReseau}<span>${esc(texte)}</span></div>
         <div class="pied"><button class="btn btn-principal" type="button" onclick="aller('/saisie/${date}')">Saisir ma journée</button></div>`;
     }
   }
@@ -316,6 +341,7 @@ function dessinerAccueil(a, session) {
   if (!j) action = `<button class="btn btn-principal" type="button" onclick="aller('/saisie/${a.date}')">Saisir ma journée</button>`;
   else if (j.statut === 'SIGNALEE') action = `<div class="alerte rouge">${ICONES.attention}<span><b>Ton chef demande une correction :</b> ${esc(j.signalement)}</span></div>
     <button class="btn btn-principal" type="button" onclick="aller('/saisie/${a.date}')">Corriger ma journée</button>`;
+  else if (j.enAttente) action = `<div class="alerte jaune">${ICONES.horloge}<span>Journée gardée sur ton téléphone : ${esc(j.hEmbauche)}–${esc(j.hPause)} · ${esc(j.hReprise)}–${esc(j.hDebauche)}. Elle partira dès que possible.</span></div>`;
   else if (j.modifiable) action = `<div class="alerte vert">${ICONES.ok}<span>Journée envoyée : ${esc(j.hEmbauche)}–${esc(j.hPause)} · ${esc(j.hReprise)}–${esc(j.hDebauche)}</span></div>
     <button class="btn btn-clair btn-petit" type="button" onclick="aller('/saisie/${a.date}')">Corriger ma journée</button>`;
   else action = `<div class="alerte vert">${ICONES.ok}<span>Journée validée. Pour une correction, vois avec ton chef ou le bureau.</span></div>`;
@@ -528,11 +554,16 @@ function donneesJournee(e) {
 ROUTES.saisie = async function (date) {
   date = /^\d{4}-\d{2}-\d{2}$/.test(date || '') ? date : aujourdhui();
   chargement();
-  let ref, a = null;
-  try { ref = await referentiels(); } catch (err) { return erreurEcran(err); }
-  try { a = await appel('accueil', { date }); } catch (err) {
-    const c = stock.lire('accueil'); if (c && c.date === date) a = c;
-  }
+  let a = stock.lire('accueil');
+  if (!a || a.date !== date) a = null;
+  let ref;
+  try {
+    // Ce que le téléphone sait déjà (planning du jour, référentiels) suffit : on n'attend le serveur que s'il manque quelque chose.
+    [ref, a] = await Promise.all([
+      referentiels(),
+      a ? Promise.resolve(a) : appel('accueil', { date }).catch(() => null),
+    ]);
+  } catch (err) { return erreurEcran(err); }
   if (a && a.journee && !a.journee.modifiable) { toast('Journée déjà validée.'); return aller('/accueil'); }
 
   const e = etatInitial(date, a && a.journee, a && a.bloc);
@@ -557,7 +588,7 @@ ROUTES.saisie = async function (date) {
     try {
       const r = await envoyer('enregistrer_journee', donneesJournee(e), `Journée du ${dateLongue(date)}`);
       stock.ecrire('dernierEnvoi', { etat: e, enAttente: !!r.enAttente });
-      stock.effacer('accueil');
+      memoriserJournee(date, e, r);
       aller('/envoye');
     } catch (err) {
       bouton.disabled = false; bouton.textContent = 'Envoyer ma journée';
@@ -566,6 +597,22 @@ ROUTES.saisie = async function (date) {
   };
   dessiner();
 };
+
+/** Met à jour l'accueil gardé sur le téléphone : le retour à l'accueil est instantané. */
+function memoriserJournee(date, e, r) {
+  const acc = stock.lire('accueil');
+  if (!acc || acc.date !== date) return;
+  const [a, b, c, d] = [e.hEmbauche, e.hPause, e.hReprise, e.hDebauche].map(minutes);
+  acc.journee = (r.reponse && r.reponse.journee) || {
+    date, chantiers: e.chantiers, lieuEmbauche: e.lieuEmbauche, hEmbauche: e.hEmbauche, hPause: e.hPause,
+    hReprise: e.hReprise, hDebauche: e.hDebauche, total: duree((b - a) + (d - c)), trajet: e.trajet,
+    tachesSupp: e.tachesSupp, tachesSuppMin: e.avecTaches ? e.tachesSuppMin : '', repas: e.repas,
+    statut: 'SAISIE', modifiable: true,
+  };
+  acc.journee.enAttente = !!r.enAttente;
+  acc.semaine = (acc.semaine || []).map(s => (s.date === date ? { ...s, statut: 'SAISIE' } : s));
+  stock.ecrire('accueil', acc);
+}
 
 // ---------------------------------------------------------------------------
 // Écran : envoyé / en attente

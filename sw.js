@@ -1,7 +1,7 @@
 /* Garde l'application sur le téléphone pour qu'elle s'ouvre sans réseau.
  * À chaque mise à jour des fichiers, augmenter VERSION : les téléphones récupèrent la nouvelle version
  * à la prochaine ouverture avec du réseau. */
-const VERSION = 'flbtp-v1';
+const VERSION = 'flbtp-v2';
 const FICHIERS = ['./', 'index.html', 'styles.css', 'app.js', 'config.js', 'manifest.webmanifest',
   'icone-192.png', 'icone-512.png', 'apple-touch-icon.png'];
 
