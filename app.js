@@ -12,7 +12,7 @@
  * Numéro affiché en bas de l'accueil et de l'écran de connexion.
  * À augmenter à chaque dépôt de nouveaux fichiers sur GitHub : c'est le seul numéro à changer.
  */
-const VERSION_APPLI = '15';
+const VERSION_APPLI = '16';
 
 // ---------------------------------------------------------------------------
 // Petits outils
@@ -491,6 +491,21 @@ function dessinerAccueil(a, session) {
     <button class="btn btn-clair btn-petit" type="button" onclick="aller('/saisie/${a.date}')">Corriger ma journée</button>`;
   else action = `<div class="alerte vert">${ICONES.ok}<span>Journée validée. Pour une correction, vois avec ton chef ou le bureau.</span></div>`;
 
+  // Le bureau ne saisit pas d'heures : son accueil mène directement à son écran.
+  if (a.estBureau && !a.bloc && !j) {
+    APP().innerHTML = `
+      <div class="entete">
+        <img class="embleme" src="embleme.png" alt="" aria-hidden="true">
+        <div><p class="discret">Bonjour ${esc(session.prenom || session.personne)}</p><h1>${esc(dateLongue(a.date))}</h1></div>
+        <button class="icone-btn" type="button" aria-label="Se déconnecter" id="sortir">${ICONES.sortie}</button>
+      </div>
+      <section class="bloc"><p>Contrôle des journées et envoi dans le Suivi RH.</p></section>
+      <button class="btn btn-principal" type="button" onclick="aller('/bureau/${a.date}')">Écran bureau</button>
+      <div class="pied"><button type="button" class="version" onclick="aller('/diagnostic')">Version ${esc(VERSION_APPLI)}</button></div>`;
+    $('#sortir').onclick = () => { if (confirm('Se déconnecter de ce téléphone ?')) { stock.effacer('dernierNom'); deconnecter(); } };
+    return;
+  }
+
   APP().innerHTML = `
     <div class="entete">
       <img class="embleme" src="embleme.png" alt="" aria-hidden="true">
@@ -542,6 +557,14 @@ function etatInitial(date, journee, bloc) {
     date,
     chantiers: [...chantiers],
     lieuEmbauche: j.lieuEmbauche || chantiers[0] || '',
+    parts: (() => {
+      const p = {};
+      String((j.repartition) || '').split(' ; ').filter(Boolean).forEach(x => {
+        const i = x.lastIndexOf(':');
+        if (i > 0) p[x.slice(0, i)] = Number(x.slice(i + 1)) || 0;
+      });
+      return p;
+    })(),
     hEmbauche: j.hEmbauche || HORAIRES_HABITUELS.hEmbauche,
     hPause: j.hPause || HORAIRES_HABITUELS.hPause,
     hReprise: j.hReprise || HORAIRES_HABITUELS.hReprise,
@@ -601,6 +624,21 @@ function formulaireJournee(e, ref, interimaire) {
       </div>
     </section>
 
+    ${e.chantiers.length > 1 ? `
+    <section class="bloc">
+      <h2>Temps passé sur chaque chantier</h2>
+      <p class="discret">Fais glisser : les parts se règlent entre elles, pas besoin de tomber juste.</p>
+      ${e.chantiers.map((c, i) => {
+        const parts = e.chantiers.map(x => (e.parts[x] === undefined ? Math.round(100 / e.chantiers.length) : e.parts[x]));
+        const somme = parts.reduce((a, b) => a + b, 0) || 1;
+        const pct = Math.round(parts[i] * 100 / somme);
+        return `<div class="ligne">
+          <div class="ligne-tete"><span>${esc(c)}</span><b>${total === null ? pct + ' %' : duree(Math.round(total * pct / 100))}</b></div>
+          <input type="range" min="0" max="100" step="5" value="${parts[i]}" data-part="${esc(c)}" aria-label="Part de ${esc(c)}">
+        </div>`;
+      }).join('')}
+    </section>` : ''}
+
     <section class="bloc">
       <h2>Horaires</h2>
       <div class="grille-2">
@@ -655,6 +693,7 @@ function brancherFormulaire(e, redessiner) {
     else e[k] = v;
     redessiner();
   });
+  $$('[data-part]').forEach(i => i.oninput = () => { e.parts[i.dataset.part] = Number(i.value); redessiner(); });
   const ajout = $('#ajoutChantier');
   if (ajout) ajout.onchange = () => {
     if (ajout.value) { e.chantiers.push(ajout.value); if (!e.lieuEmbauche) e.lieuEmbauche = ajout.value; redessiner(); }
@@ -690,6 +729,7 @@ function controler(e, interimaire) {
 function donneesJournee(e) {
   return {
     date: e.date, chantiers: e.chantiers, lieuEmbauche: e.lieuEmbauche,
+    repartition: e.chantiers.map(c => ({ chantier: c, part: e.parts[c] === undefined ? Math.round(100 / e.chantiers.length) : e.parts[c] })),
     hEmbauche: e.hEmbauche, hPause: e.hPause, hReprise: e.hReprise, hDebauche: e.hDebauche,
     trajet: e.trajet, tachesSupp: e.avecTaches ? e.tachesSupp.trim() : '',
     tachesSuppMin: e.avecTaches ? Number(e.tachesSuppMin) : 0, repas: e.repas,
@@ -818,6 +858,14 @@ ROUTES.envoye = function () {
 // Écran : rapport de chantier (responsable du bloc)
 // ---------------------------------------------------------------------------
 
+/** Les matériaux sont classés par famille : la liste en compte plus de cent. */
+function optionsMateriaux(liste, choisi) {
+  const familles = {};
+  liste.forEach(x => { (familles[x.categorie || 'AUTRES'] = familles[x.categorie || 'AUTRES'] || []).push(x); });
+  return Object.keys(familles).map(f => `<optgroup label="${esc(f)}">${familles[f]
+    .map(x => `<option ${x.materiau === choisi ? 'selected' : ''}>${esc(x.materiau)}</option>`).join('')}</optgroup>`).join('');
+}
+
 async function redimensionner(fichier, cote = 1600, qualite = 0.78) {
   const url = URL.createObjectURL(fichier);
   try {
@@ -874,10 +922,20 @@ ROUTES.rapport = async function (param) {
         ${e.avancement.map((t, i) => `
           <div class="ligne">
             <input type="text" aria-label="Tâche" value="${esc(t.tache)}" data-av="${i}" data-k="tache" placeholder="Ex. bicouche">
-            <div class="ligne-tete"><input type="range" min="0" max="100" step="5" value="${Number(t.pourcentage) || 0}" data-av="${i}" data-k="pourcentage" aria-label="Avancement en pourcent" style="flex:1">
+            <div class="choix" style="--n:2">
+              <button type="button" data-mode="${i}" data-v="POURCENTAGE" aria-pressed="${t.mode !== 'QUANTITE'}">En %</button>
+              <button type="button" data-mode="${i}" data-v="QUANTITE" aria-pressed="${t.mode === 'QUANTITE'}">En quantité</button>
+            </div>
+            ${t.mode === 'QUANTITE' ? `
+              <div class="materiau" style="grid-template-columns:1fr 1fr 44px">
+                <input type="text" inputmode="decimal" aria-label="Quantité faite" value="${esc(t.quantite || '')}" data-av="${i}" data-k="quantite" placeholder="Ex. 120">
+                <select aria-label="Unité" data-av="${i}" data-k="unite">${['m2', 'ml', 'm3', 't', 'un'].map(u => `<option ${u === (t.unite || 'm2') ? 'selected' : ''}>${u}</option>`).join('')}</select>
+                <button class="suppr" type="button" data-suppr-av="${i}" aria-label="Retirer la tâche">×</button>
+              </div>`
+            : `<div class="ligne-tete"><input type="range" min="0" max="100" step="5" value="${Number(t.pourcentage) || 0}" data-av="${i}" data-k="pourcentage" aria-label="Avancement en pourcent" style="flex:1">
               <b style="min-width:52px;text-align:right" id="pct${i}">${Number(t.pourcentage) || 0} %</b>
               <button class="suppr" type="button" data-suppr-av="${i}" aria-label="Retirer la tâche">×</button></div>
-            <div class="barre"><i class="${Number(t.pourcentage) >= 100 ? 'fini' : ''}" style="width:${Number(t.pourcentage) || 0}%"></i></div>
+            <div class="barre"><i class="${Number(t.pourcentage) >= 100 ? 'fini' : ''}" style="width:${Number(t.pourcentage) || 0}%"></i></div>`}
           </div>`).join('')}
         <button class="btn btn-ajout" type="button" id="ajoutTache">${ICONES.plus} Ajouter une tâche</button>
       </section>
@@ -886,7 +944,7 @@ ROUTES.rapport = async function (param) {
         <h2>Matériaux utilisés</h2>
         ${e.materiaux.map((m, i) => `
           <div class="materiau">
-            <select aria-label="Matériau" data-mat="${i}" data-k="materiau">${d.listeMateriaux.map(x => `<option ${x.materiau === m.materiau ? 'selected' : ''}>${esc(x.materiau)}</option>`).join('')}</select>
+            <select aria-label="Matériau" data-mat="${i}" data-k="materiau">${optionsMateriaux(d.listeMateriaux, m.materiau)}</select>
             <input type="text" inputmode="decimal" aria-label="Quantité" value="${esc(m.quantite)}" data-mat="${i}" data-k="quantite">
             <select aria-label="Unité" data-mat="${i}" data-k="unite">${['m3', 't', 'litres', 'm2', 'ml', 'u'].map(u => `<option ${u === m.unite ? 'selected' : ''}>${u}</option>`).join('')}</select>
             <button class="suppr" type="button" data-suppr-mat="${i}" aria-label="Retirer le matériau">×</button>
@@ -922,9 +980,10 @@ ROUTES.rapport = async function (param) {
       const i = +el.dataset.mat; e.materiaux[i][el.dataset.k] = el.value;
       if (el.dataset.k === 'materiau' && unites[el.value]) { e.materiaux[i].unite = unites[el.value]; dessiner(); }
     });
+    $$('[data-mode]').forEach(b => b.onclick = () => { e.avancement[+b.dataset.mode].mode = b.dataset.v; dessiner(); });
     $$('[data-suppr-av]').forEach(b => b.onclick = () => { e.avancement.splice(+b.dataset.supprAv, 1); dessiner(); });
     $$('[data-suppr-mat]').forEach(b => b.onclick = () => { e.materiaux.splice(+b.dataset.supprMat, 1); dessiner(); });
-    $('#ajoutTache').onclick = () => { e.avancement.push({ chantier: d.bloc.lieux[0] || '', tache: '', pourcentage: 0 }); dessiner(); };
+    $('#ajoutTache').onclick = () => { e.avancement.push({ chantier: d.bloc.lieux[0] || '', tache: '', pourcentage: 0, mode: 'POURCENTAGE' }); dessiner(); };
     $('#ajoutMat').onclick = () => { const m = d.listeMateriaux[0]; e.materiaux.push({ chantier: d.bloc.lieux[0] || '', materiau: m.materiau, quantite: '', unite: m.unite }); dessiner(); };
     $('#photo').onchange = async ev => {
       const f = ev.target.files[0]; if (!f) return;
@@ -945,6 +1004,8 @@ ROUTES.rapport = async function (param) {
   const soumettre = async () => {
     const vide = e.avancement.find(t => !String(t.tache).trim());
     if (vide) { $('#erreur').textContent = 'Donne un nom à chaque tâche, ou retire-la.'; return; }
+    const sansQuantite = e.avancement.find(t => t.mode === 'QUANTITE' && !(Number(String(t.quantite).replace(',', '.')) > 0));
+    if (sansQuantite) { $('#erreur').textContent = `Indique la quantité faite pour « ${sansQuantite.tache} ».`; return; }
     const sansQte = e.materiaux.find(m => !(Number(String(m.quantite).replace(',', '.')) > 0));
     if (sansQte) { $('#erreur').textContent = 'Indique la quantité de chaque matériau, ou retire-le.'; return; }
     const bouton = $('#envoyer'); bouton.disabled = true; bouton.textContent = 'Envoi…';
@@ -1128,14 +1189,14 @@ ROUTES.bureau = async function (date) {
     const [lib, couleur] = j ? (ETIQUETTES[x.exportee ? 'EXPORTEE' : (x.valideBureau ? 'VALIDEE_BUREAU' : j.statut)] || [j.statut, ''])
       : ['Pas saisie', 'rouge'];
     return `
-      <section class="bloc">
+      <div class="ligne">
         <div class="ligne-tete">
           <span>${esc(x.personne)}${x.auPlanning ? '' : ' <span class="discret">(hors planning)</span>'}</span>
           <span class="pastille ${couleur}">${esc(lib)}</span>
         </div>
-        <p class="discret">${esc(x.chantier || 'chantier non précisé')}${x.responsable ? ' · chef ' + esc(x.responsable) : ''}</p>
         ${j ? `<p>${esc(j.hEmbauche)}–${esc(j.hPause)} · ${esc(j.hReprise)}–${esc(j.hDebauche)} · <b>${esc(j.total)}</b>
-               <span class="discret">— ${esc([j.trajet, { AUCUN: 'sans repas', PANIER: 'panier', RESTAURANT: 'restaurant' }[j.repas], j.zone ? 'zone ' + j.zone : 'pas de zone'].filter(Boolean).join(', '))}</span></p>` : ''}
+               <span class="discret">— ${esc([j.trajet, { AUCUN: 'sans repas', PANIER: 'panier', RESTAURANT: 'restaurant' }[j.repas], j.zone ? 'zone ' + j.zone : 'pas de zone'].filter(Boolean).join(', '))}</span>
+               ${j.repartition ? `<br><span class="discret">Heures réparties : ${esc(j.repartition)}</span>` : ''}</p>` : ''}
         ${x.exportee ? '<p class="discret">Déjà envoyée au Suivi RH.</p>' : `
           <div class="duo">
             <button class="btn btn-clair btn-petit" type="button" data-modifier="${esc(x.personne)}">${j ? 'Corriger' : 'Saisir'}</button>
@@ -1144,6 +1205,27 @@ ROUTES.bureau = async function (date) {
                 ? `<button class="btn btn-vert btn-petit" type="button" data-valider-chef="${esc(x.personne)}">Valider</button>`
                 : `<button class="btn btn-petit ${x.valideBureau ? 'btn-clair' : 'btn-principal'}" type="button" data-bureau="${esc(x.personne)}" data-valeur="${x.valideBureau ? 'non' : 'oui'}">${x.valideBureau ? 'Retirer de l\'envoi' : 'Bon pour la paie'}</button>`}
           </div>`}
+      </div>`;
+  };
+
+  /** Un chantier entier : son rapport, son équipe, et le passage en paie de tout le monde d'un coup. */
+  const carteChantier = c => {
+    const prets = c.journees.filter(x => x.journee && !x.exportee && !x.valideBureau
+      && x.journee.statut !== 'SAISIE' && x.journee.statut !== 'SIGNALEE').map(x => x.personne);
+    const aValider = c.journees.filter(x => x.journee && (x.journee.statut === 'SAISIE' || x.journee.statut === 'SIGNALEE')).length;
+    const manquantes = c.journees.filter(x => !x.journee).length;
+    return `
+      <section class="bloc">
+        <div class="bloc-titre">${esc(c.villes.join(' + '))}${c.client ? ' · ' + esc(c.client) : ''}</div>
+        <div class="ligne-tete">
+          <span class="discret">Chef : ${esc(c.responsable || '—')}</span>
+          <span class="pastille ${c.rapport.envoye ? 'vert' : 'rouge'}">Rapport ${c.rapport.envoye ? 'envoyé' : 'manquant'}</span>
+        </div>
+        <p class="discret">${c.journees.length} personne${c.journees.length > 1 ? 's' : ''}${manquantes ? ` · ${manquantes} sans saisie` : ''}${aValider ? ` · ${aValider} à valider` : ''}</p>
+        ${c.journees.map(carte).join('')}
+        <button class="btn btn-clair btn-petit" type="button" onclick="aller('/rapport/${date}/${encodeURIComponent(c.responsable || '')}')">
+          ${c.rapport.envoye ? `Rapport : ${esc(c.rapport.restaurant || 'sans restaurant')}, ${esc(String(c.rapport.repasPayes))} repas, ${c.rapport.nbBl} BL` : 'Remplir le rapport'}</button>
+        ${prets.length ? `<button class="btn btn-principal btn-petit" type="button" data-chantier="${esc(prets.join('|'))}">Tout le chantier bon pour la paie (${prets.length})</button>` : ''}
       </section>`;
   };
 
@@ -1161,18 +1243,11 @@ ROUTES.bureau = async function (date) {
       ${d.alertes.length ? `<div class="alerte rouge">${ICONES.attention}<span><b>${d.alertes.length} alerte${d.alertes.length > 1 ? 's' : ''} :</b><br>
         ${d.alertes.slice(0, 6).map(a => `${esc(a.date)} · ${esc(a.type.toLowerCase().replace(/_/g, ' '))}${a.personne ? ' — ' + esc(a.personne) : ''}`).join('<br>')}</span></div>` : ''}
 
-      <h2>Journées (${d.journees.length})</h2>
-      ${d.journees.length ? d.journees.map(carte).join('') : '<section class="bloc"><p class="discret">Personne au planning, aucune saisie.</p></section>'}
-      <button class="btn btn-ajout" type="button" id="ajouter">${ICONES.plus} Saisir pour quelqu'un d'autre</button>
+      ${d.chantiers.length ? d.chantiers.map(carteChantier).join('')
+        : '<section class="bloc"><p class="discret">Aucun chantier au planning ce jour-là.</p></section>'}
 
-      <h2>Rapports de chantier</h2>
-      ${d.rapports.length ? d.rapports.map(r => `
-        <section class="bloc">
-          <div class="ligne-tete"><span>${esc(r.chantier)}</span>
-            <span class="pastille ${r.envoye ? 'vert' : 'rouge'}">${r.envoye ? 'Envoyé' : 'Manquant'}</span></div>
-          <p class="discret">Chef : ${esc(r.responsable)}${r.envoye ? ` · ${esc(r.restaurant || 'sans restaurant')} · ${esc(String(r.repasPayes))} repas · ${r.nbBl} BL` : ''}</p>
-          <button class="btn btn-clair btn-petit" type="button" onclick="aller('/rapport/${date}/${encodeURIComponent(r.responsable)}')">${r.envoye ? 'Corriger' : 'Remplir'} le rapport</button>
-        </section>`).join('') : '<section class="bloc"><p class="discret">Aucun chantier au planning ce jour-là.</p></section>'}
+      ${d.horsChantier.length ? `<h2>Hors chantier</h2>${d.horsChantier.map(x => `<section class="bloc">${carte(x)}</section>`).join('')}` : ''}
+      <button class="btn btn-ajout" type="button" id="ajouter">${ICONES.plus} Saisir pour quelqu'un d'autre</button>
 
       <div class="pied">
         <div class="alerte ${d.aImporter ? 'jaune' : 'vert'}">${d.aImporter ? ICONES.horloge : ICONES.ok}<span>
@@ -1184,6 +1259,7 @@ ROUTES.bureau = async function (date) {
     $$('[data-modifier]').forEach(b => b.onclick = () => aller(`/bureau-journee/${date}/${encodeURIComponent(b.dataset.modifier)}`));
     $$('[data-valider-chef]').forEach(b => b.onclick = () => agir({ date, quoi: 'CHEF', personnes: [b.dataset.validerChef] }));
     $$('[data-bureau]').forEach(b => b.onclick = () => agir({ date, quoi: 'BUREAU', valeur: b.dataset.valeur === 'oui', personnes: [b.dataset.bureau] }));
+    $$('[data-chantier]').forEach(b => b.onclick = () => agir({ date, quoi: 'BUREAU', valeur: true, personnes: b.dataset.chantier.split('|') }));
     $('#ajouter').onclick = () => {
       const nom = prompt('Nom de la personne, tel qu\'il apparaît au planning :\n\n' + d.personnesConnues.join(', '));
       if (nom && d.personnesConnues.includes(nom.trim().toUpperCase())) aller(`/bureau-journee/${date}/${encodeURIComponent(nom.trim().toUpperCase())}`);
@@ -1231,9 +1307,10 @@ ROUTES['bureau-journee'] = async function (param) {
   } catch (err) { if (toujoursIci()) erreurEcran(err); return; }
   if (!toujoursIci()) return;
 
-  const ligne = d.journees.find(x => x.personne === personne);
-  const bloc = d.blocs.find(b => b.equipe.includes(personne));
-  const e = etatInitial(date, ligne && ligne.journee, bloc ? { lieux: bloc.villes } : null);
+  const toutes = [...d.chantiers.flatMap(c => c.journees), ...d.horsChantier];
+  const ligne = toutes.find(x => x.personne === personne);
+  const chantier = d.chantiers.find(c => c.journees.some(x => x.personne === personne));
+  const e = etatInitial(date, ligne && ligne.journee, chantier ? { lieux: chantier.villes } : null);
 
   const dessiner = () => {
     const y = window.scrollY;
