@@ -23,6 +23,9 @@ html { height: 100%; }
 body {
   margin: 0; background: var(--fond); color: var(--encre);
   font-family: var(--texte); font-size: 17px; line-height: 1.4;
+  /* Empêche le « tirer pour rafraîchir » d'Android : un doigt qui glisse rechargeait la page
+     et faisait perdre une saisie en cours. L'accueil se met de toute façon à jour à chaque ouverture. */
+  overscroll-behavior-y: contain;
 }
 /*
  * Les marges de sécurité (encoche, barre du bas) sont DANS .app et non sur le corps de la page :
@@ -32,8 +35,10 @@ body {
 .app {
   max-width: 520px; margin: 0 auto; display: flex; flex-direction: column; gap: 20px;
   padding: calc(24px + env(safe-area-inset-top, 0px)) 18px calc(28px + env(safe-area-inset-bottom, 0px));
+  /* svh = hauteur de l'écran barre d'adresse AFFICHÉE : le contenu tient dans tous les cas,
+     y compris quand la barre réapparaît après un défilement ou un rechargement. */
   min-height: 100vh;
-  min-height: 100dvh;
+  min-height: 100svh;
 }
 
 h1, h2 { margin: 0; }
@@ -159,7 +164,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .alerte.vert { background: var(--vert-pale); color: var(--vert); }
 .bandeau { position: sticky; top: 0; z-index: 10; background: var(--encre); color: #fff; font-size: 14px; font-weight: 600; padding: 8px 16px; padding-top: calc(8px + env(safe-area-inset-top, 0px)); text-align: center; }
 /* Quand le bandeau est affiché, il occupe le haut : .app n'a plus besoin de la marge d'encoche. */
-.bandeau:not([hidden]) + .app { padding-top: 16px; min-height: calc(100dvh - 40px); }
+.bandeau:not([hidden]) + .app { padding-top: 16px; min-height: calc(100svh - 40px); }
 .toast { position: fixed; left: 50%; bottom: calc(20px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); background: var(--encre); color: #fff; padding: 12px 18px; border-radius: 10px; font-weight: 600; max-width: calc(100% - 32px); z-index: 20; }
 .erreur-champ { color: var(--rouge); font-weight: 600; font-size: 15px; }
 .chargement { display: grid; place-items: center; min-height: 50vh; color: var(--gris); }
