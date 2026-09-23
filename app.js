@@ -12,7 +12,7 @@
  * Numéro affiché en bas de l'accueil et de l'écran de connexion.
  * À augmenter à chaque dépôt de nouveaux fichiers sur GitHub : c'est le seul numéro à changer.
  */
-const VERSION_APPLI = '22';
+const VERSION_APPLI = '23';
 
 // ---------------------------------------------------------------------------
 // Petits outils
@@ -288,7 +288,7 @@ function chargement(texte = 'Chargement…') {
 
 function deconnecter() {
   stock.effacer('session');
-  stock.effacer('accueil');
+  ['accueil', 'jours', 'dernierEnvoi'].forEach(stock.effacer);
   aller('/');
 }
 
@@ -377,6 +377,8 @@ async function ecranConnexion() {
     enCours = true; dessiner();
     try {
       const r = await appel('connexion', { personne: choisi, code });
+      // Ce qui reste d'une session précédente n'a rien à faire ici : on repart propre.
+      ['accueil', 'jours', 'ref', 'dernierEnvoi'].forEach(stock.effacer);
       stock.ecrire('session', { jeton: r.jeton, personne: r.personne, type: r.type, prenom: r.prenom });
       stock.ecrire('dernierNom', choisi);
       aller('/accueil');
@@ -549,20 +551,20 @@ function dessinerAccueil(a, session) {
       <section class="bloc">
         <div class="bloc-titre">Prévu au planning</div>
         <div>${libellesChantiers(bloc).map(c => `<div class="chantier">${esc(nomCourt(c))}</div>`).join('')}
-          ${bloc.taches && bloc.taches !== (bloc.taches_par_personne || {})[session.personne] ? `<p class="discret">${esc(bloc.taches)}</p>` : ''}</div>
+          ${bloc.taches ? `<p class="a-faire">${esc(bloc.taches)}</p>` : ''}</div>
         <div class="pastilles"><span class="pastille">Chef : ${esc(bloc.responsable)}</span></div>
-        ${(bloc.taches_par_personne || {})[session.personne] ? `
-          <p class="ma-tache"><b>Ta tâche :</b> ${esc(bloc.taches_par_personne[session.personne])}</p>` : ''}
+
         <details class="sep depliant">
           <summary>Équipe (${bloc.equipe.length})</summary>
           ${bloc.equipe.map(n => `<div class="equipier">
             <span class="qui">${esc(n)}${n === session.personne ? ' (toi)' : ''}</span>
-            <span class="quoi">${esc((bloc.taches_par_personne || {})[n] || '')}</span>
+            <span class="quoi"></span>
           </div>`).join('')}
         </details>
       </section>`
-      : `<section class="bloc"><p>${a.planningTrouve ? "Tu n'es pas au planning aujourd'hui." : "Le planning du jour n'est pas encore disponible."}</p>
-         <p class="discret">Si tu as travaillé, saisis quand même ta journée.</p></section>`}
+      : `<section class="bloc"><p>${a.planningTrouve ? "Tu n'es pas au planning aujourd'hui." : "Pas de planning pour aujourd'hui."}</p>
+         <p class="discret">${a.planningTrouve ? 'Si tu as travaillé, saisis quand même ta journée.'
+           : 'Saisis ta journée en choisissant tes chantiers : tu pourras ensuite faire le rapport et valider ceux qui étaient avec toi.'}</p></section>`}
     ${action}
     ${a.estResponsable ? resumeChef(a, session.personne) : ''}
     ${a.estBureau ? `<button class="btn btn-clair btn-petit" type="button" onclick="aller('/bureau/${a.date}')">Écran bureau</button>` : ''}
@@ -597,11 +599,12 @@ function etatInitial(date, journee, bloc) {
     date,
     chantiers: [...chantiers],
     lieuEmbauche: j.lieuEmbauche || chantiers[0] || '',
+    // « CHANTIER = 1:30 » : on relit des minutes, jamais des pourcentages.
     parts: (() => {
       const p = {};
-      String((j.repartition) || '').split(' ; ').filter(Boolean).forEach(x => {
-        const i = x.lastIndexOf(':');
-        if (i > 0) p[x.slice(0, i)] = Number(x.slice(i + 1)) || 0;
+      String(j.repartition || '').split(' ; ').filter(Boolean).forEach(x => {
+        const i = x.lastIndexOf(' = ');
+        if (i > 0) p[x.slice(0, i)] = minutes(x.slice(i + 3)) || 0;
       });
       return p;
     })(),
@@ -1187,15 +1190,19 @@ ROUTES.equipe = async function (date) {
           <span class="pastille ${pastille[1]}">${esc(pastille[0])}</span></div>
         <p>${esc(j.hEmbauche)}–${esc(j.hPause)} · ${esc(j.hReprise)}–${esc(j.hDebauche)} · <b>${esc(j.total)}</b></p>
         <p class="discret">${esc([j.trajet, j.tachesSuppMin ? `${j.tachesSuppMin} min ${j.tachesSupp}` : '', { AUCUN: 'Pas de repas', PANIER: 'Panier', RESTAURANT: 'Restaurant' }[j.repas]].filter(Boolean).join(' — '))}</p>
-        ${(d.bloc.taches_par_personne || {})[m.personne] ? `<p class="discret">Au planning : ${esc(d.bloc.taches_par_personne[m.personne])}</p>` : ''}
+
         ${j.statut === 'SIGNALEE' ? `<p class="discret">Motif : ${esc(j.signalement)}</p>` : ''}
+        ${!aValider && j.statut === 'VALIDEE_CHEF' && j.statut !== 'EXPORTEE' ? `
+          <button class="btn btn-clair btn-petit" type="button" data-devalider="${esc(m.personne)}">Dévalider pour correction</button>` : ''}
         ${aValider ? (signalement[m.personne] !== undefined ? `
           <div class="champ"><label for="motif-${esc(m.personne)}" class="sous">Qu'est-ce qui ne va pas ?</label>
             <input type="text" id="motif-${esc(m.personne)}" value="${esc(signalement[m.personne])}" data-motif="${esc(m.personne)}" placeholder="Ex. débauche à 16 h 30, pas 17 h"></div>
           <div class="duo"><button class="btn btn-clair btn-petit" type="button" data-annuler="${esc(m.personne)}">Annuler</button>
             <button class="btn btn-rouge btn-petit" type="button" data-envoyer-signal="${esc(m.personne)}">Signaler</button></div>`
-          : `<div class="duo"><button class="btn btn-rouge btn-petit" type="button" data-signaler="${esc(m.personne)}">Signaler</button>
-            <button class="btn btn-vert btn-petit" type="button" data-valider="${esc(m.personne)}">Valider</button></div>`) : ''}
+          : (m.estMoi
+            ? `<button class="btn btn-vert btn-petit" type="button" data-valider="${esc(m.personne)}">Valider ma journée</button>`
+            : `<div class="duo"><button class="btn btn-rouge btn-petit" type="button" data-signaler="${esc(m.personne)}">Signaler</button>
+            <button class="btn btn-vert btn-petit" type="button" data-valider="${esc(m.personne)}">Valider</button></div>`)) : ''}
       </section>`;
   };
 
@@ -1217,6 +1224,7 @@ ROUTES.equipe = async function (date) {
       </div>`;
 
     $$('[data-valider]').forEach(b => b.onclick = () => decider([b.dataset.valider], 'VALIDER'));
+    $$('[data-devalider]').forEach(b => b.onclick = () => decider([b.dataset.devalider], 'DEVALIDER'));
     $$('[data-signaler]').forEach(b => b.onclick = () => { signalement[b.dataset.signaler] = ''; dessiner(); });
     $$('[data-annuler]').forEach(b => b.onclick = () => { delete signalement[b.dataset.annuler]; dessiner(); });
     $$('[data-motif]').forEach(i => i.oninput = () => { signalement[i.dataset.motif] = i.value; });
@@ -1240,7 +1248,8 @@ ROUTES.equipe = async function (date) {
         validees: d.membres.filter(m => m.journee && m.journee.statut !== 'SAISIE').length,
       });
       oublierJour(date);
-      toast(decision === 'VALIDER' ? (personnes.length > 1 ? 'Journées validées.' : 'Journée validée.') : 'Signalement envoyé.');
+      toast({ VALIDER: personnes.length > 1 ? 'Journées validées.' : 'Journée validée.',
+        DEVALIDER: 'Journée rouverte : elle peut être corrigée.', SIGNALER: 'Signalement envoyé.' }[decision]);
     } catch (err) {
       toast(err instanceof HorsReseau ? 'Pas de réseau : réessaie quand ça capte.' : err.message);
     }
@@ -1327,7 +1336,7 @@ ROUTES.bureau = async function (date) {
         </div>
         ${j ? `<p>${esc(j.hEmbauche)}–${esc(j.hPause)} · ${esc(j.hReprise)}–${esc(j.hDebauche)} · <b>${esc(j.total)}</b>
                <span class="discret">— ${esc([j.trajet, { AUCUN: 'sans repas', PANIER: 'panier', RESTAURANT: 'restaurant' }[j.repas], j.zone ? 'zone ' + j.zone : 'pas de zone'].filter(Boolean).join(', '))}</span>
-               ${j.repartition ? `<br><span class="discret">Heures réparties : ${esc(j.repartition.split(' ; ').map(nomCourt).join(' ; '))}</span>` : ''}</p>` : ''}
+               ${j.repartition ? `<br><span class="discret">Heures : ${esc(j.repartition.split(' ; ').map(nomCourt).join(' ; '))}</span>` : ''}</p>` : ''}
         ${x.exportee ? '<p class="discret">Déjà envoyée au Suivi RH.</p>' : `
           <div class="duo">
             <button class="btn btn-clair btn-petit" type="button" data-modifier="${esc(x.personne)}">${j ? 'Corriger' : 'Saisir'}</button>
@@ -1353,6 +1362,8 @@ ROUTES.bureau = async function (date) {
           <span class="pastille ${c.rapport.envoye ? 'vert' : 'rouge'}">Rapport ${c.rapport.envoye ? 'envoyé' : 'manquant'}</span>
         </div>
         <p class="discret">${c.journees.length} personne${c.journees.length > 1 ? 's' : ''}${manquantes ? ` · ${manquantes} sans saisie` : ''}${aValider ? ` · ${aValider} à valider` : ''}</p>
+        ${c.rapport.ecartRepas ? `<div class="alerte rouge">${ICONES.attention}<span><b>Repas :</b> ${esc(String(c.rapport.repasPayes))} payés au rapport, ${c.rapport.repasDeclares} déclarés par l'équipe.</span></div>`
+          : (c.rapport.envoye ? `<p class="discret">Repas : ${esc(String(c.rapport.repasPayes))} payés, ${c.rapport.repasDeclares} déclarés.</p>` : '')}
         ${c.journees.map(carte).join('')}
         <button class="btn btn-clair btn-petit" type="button" onclick="aller('/rapport/${date}/${encodeURIComponent(c.responsable || '')}')">
           ${c.rapport.envoye ? `Rapport : ${esc(c.rapport.restaurant || 'sans restaurant')}, ${esc(String(c.rapport.repasPayes))} repas, ${c.rapport.nbBl} BL` : 'Remplir le rapport'}</button>
