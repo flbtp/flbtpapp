@@ -12,7 +12,7 @@
  * Numéro affiché en bas de l'accueil et de l'écran de connexion.
  * À augmenter à chaque dépôt de nouveaux fichiers sur GitHub : c'est le seul numéro à changer.
  */
-const VERSION_APPLI = '18';
+const VERSION_APPLI = '19';
 
 // ---------------------------------------------------------------------------
 // Petits outils
@@ -436,6 +436,17 @@ function garderJour(a) {
 // Écran : accueil
 // ---------------------------------------------------------------------------
 
+/** À l'écran, le numéro du chantier n'apporte rien : « 0002 · IGUACEL / JUGEALS » devient « IGUACEL / JUGEALS ». */
+function nomCourt(libelle) {
+  return String(libelle || '').replace(/^\s*\d+\s*·\s*/, '');
+}
+
+/** Le libellé complet du chantier (numéro, client, commune) ; les communes seules avant la bascule. */
+function libellesChantiers(bloc) {
+  if (!bloc) return [];
+  return (bloc.chantiers && bloc.chantiers.length) ? bloc.chantiers.map(c => c.libelle) : (bloc.villes || []);
+}
+
 const LIBELLES_STATUT = {
   SAISIE: ['Envoyée', 'saisie'], SIGNALEE: ['À corriger', 'signalee'], VALIDEE_CHEF: ['Validée', 'ok'],
   VALIDEE_BUREAU: ['Validée', 'ok'], EXPORTEE: ['Validée', 'ok'], NON_SAISIE: ['À saisir', 'a-faire'], A_VENIR: ['—', ''],
@@ -530,7 +541,7 @@ function dessinerAccueil(a, session) {
     ${bloc ? `
       <section class="bloc">
         <div class="bloc-titre">Prévu au planning</div>
-        <div><div class="chantier">${esc(bloc.villes.join(' + '))}</div>
+        <div><div class="chantier">${esc(libellesChantiers(bloc).map(nomCourt).join(' + '))}</div>
           <p class="discret">${esc([bloc.client, bloc.taches].filter(Boolean).join(' — '))}</p></div>
         <div class="pastilles"><span class="pastille">Chef : ${esc(bloc.responsable)}</span></div>
         <div class="sep"><span class="sous">Équipe</span><p>${esc(bloc.equipe.join(', '))}</p></div>
@@ -599,6 +610,7 @@ function choix(nom, options, valeur, n) {
 
 function formulaireJournee(e, ref, interimaire) {
   const communes = ref.lieux.filter(l => l.type !== 'DEPOT');
+  const chantiers = ref.chantiers && ref.chantiers.length ? ref.chantiers : communes.map(l => ({ libelle: l.libelle }));
   const total = (() => {
     const [a, b, c, d] = [e.hEmbauche, e.hPause, e.hReprise, e.hDebauche].map(minutes);
     if ([a, b, c, d].some(x => x === null) || !(a < b && b <= c && c < d)) return null;
@@ -619,10 +631,10 @@ function formulaireJournee(e, ref, interimaire) {
     <section class="bloc">
       <div class="champ">
         <span class="etiquette">${e.chantiers.length > 1 ? 'Chantiers' : 'Chantier'}</span>
-        <div class="chips">${e.chantiers.map(c => `<span class="chip">${esc(c)}<button type="button" data-retirer="${esc(c)}" aria-label="Retirer ${esc(c)}">×</button></span>`).join('') || '<span class="discret">Aucun chantier choisi</span>'}</div>
+        <div class="chips">${e.chantiers.map(c => `<span class="chip">${esc(nomCourt(c))}<button type="button" data-retirer="${esc(c)}" aria-label="Retirer ${esc(c)}">×</button></span>`).join('') || '<span class="discret">Aucun chantier choisi</span>'}</div>
         <select id="ajoutChantier" aria-label="Ajouter un chantier">
           <option value="">+ Ajouter un chantier</option>
-          ${communes.filter(l => !e.chantiers.includes(l.libelle)).map(l => `<option>${esc(l.libelle)}</option>`).join('')}
+          ${chantiers.filter(c => !e.chantiers.includes(c.libelle)).map(c => `<option>${esc(c.libelle)}</option>`).join('')}
         </select>
       </div>
       <div class="champ">
@@ -647,7 +659,7 @@ function formulaireJournee(e, ref, interimaire) {
         const somme = parts.reduce((a, b) => a + b, 0) || 1;
         const pct = Math.round(parts[i] * 100 / somme);
         return `<div class="ligne">
-          <div class="ligne-tete"><span>${esc(c)}</span><b>${total === null ? pct + ' %' : duree(Math.round(total * pct / 100))}</b></div>
+          <div class="ligne-tete"><span>${esc(nomCourt(c))}</span><b>${total === null ? pct + ' %' : duree(Math.round(total * pct / 100))}</b></div>
           <input type="range" min="0" max="100" step="5" value="${parts[i]}" data-part="${esc(c)}" aria-label="Part de ${esc(c)}">
         </div>`;
       }).join('')}
@@ -905,12 +917,60 @@ ROUTES.rapport = async function (param) {
   const e = {
     restaurant: (d.rapport && d.rapport.restaurant) || '',
     repasPayes: d.rapport ? Number(d.rapport.repasPayes) || 0 : 0,
-    remarques: (d.rapport && d.rapport.remarques) || '',
-    avancement: d.avancement.length ? d.avancement.map(x => ({ ...x })) : [],
-    materiaux: d.materiaux.map(x => ({ ...x })),
-    photos: [],
+    // Chaque chantier a son avancement, ses matériaux, ses bons de livraison et ses remarques.
+    chantiers: d.chantiers.map(c => ({
+      libelle: c.libelle, client: c.client, commune: c.commune, remarques: c.remarques || '',
+      avancement: c.avancement.map(x => ({ ...x })), materiaux: c.materiaux.map(x => ({ ...x })),
+      blEnvoyes: c.bl.length, photos: [],
+    })),
+    ouvert: 0,
   };
   const unites = Object.fromEntries(d.listeMateriaux.map(m => [m.materiau, m.unite]));
+
+  const sectionChantier = (c, i) => `
+    <section class="bloc">
+      <div class="bloc-titre">${esc(nomCourt(c.libelle))}</div>
+      <h2>Avancement</h2>
+      ${c.avancement.map((t, k) => `
+        <div class="ligne">
+          <input type="text" aria-label="Tâche" value="${esc(t.tache)}" data-ch="${i}" data-av="${k}" data-k="tache" placeholder="Ex. bicouche">
+          <div class="choix" style="--n:2">
+            <button type="button" data-mode="${i}-${k}" data-v="POURCENTAGE" aria-pressed="${t.mode !== 'QUANTITE'}">En %</button>
+            <button type="button" data-mode="${i}-${k}" data-v="QUANTITE" aria-pressed="${t.mode === 'QUANTITE'}">En quantité</button>
+          </div>
+          ${t.mode === 'QUANTITE' ? `
+            <div class="materiau" style="grid-template-columns:1fr 1fr 44px">
+              <input type="text" inputmode="decimal" aria-label="Quantité faite" value="${esc(t.quantite || '')}" data-ch="${i}" data-av="${k}" data-k="quantite" placeholder="Ex. 120">
+              <select aria-label="Unité" data-ch="${i}" data-av="${k}" data-k="unite">${['m2', 'ml', 'm3', 't', 'un'].map(u => `<option ${u === (t.unite || 'm2') ? 'selected' : ''}>${u}</option>`).join('')}</select>
+              <button class="suppr" type="button" data-suppr-av="${i}-${k}" aria-label="Retirer la tâche">×</button>
+            </div>`
+          : `<div class="ligne-tete"><input type="range" min="0" max="100" step="5" value="${Number(t.pourcentage) || 0}" data-ch="${i}" data-av="${k}" data-k="pourcentage" aria-label="Avancement en pourcent" style="flex:1">
+              <b style="min-width:52px;text-align:right">${Number(t.pourcentage) || 0} %</b>
+              <button class="suppr" type="button" data-suppr-av="${i}-${k}" aria-label="Retirer la tâche">×</button></div>
+            <div class="barre"><i class="${Number(t.pourcentage) >= 100 ? 'fini' : ''}" style="width:${Number(t.pourcentage) || 0}%"></i></div>`}
+        </div>`).join('')}
+      <button class="btn btn-ajout" type="button" data-ajout-tache="${i}">${ICONES.plus} Ajouter une tâche</button>
+
+      <h2>Matériaux utilisés</h2>
+      ${c.materiaux.map((m, k) => `
+        <div class="materiau">
+          <select aria-label="Matériau" data-ch="${i}" data-mat="${k}" data-k="materiau">${optionsMateriaux(d.listeMateriaux, m.materiau)}</select>
+          <input type="text" inputmode="decimal" aria-label="Quantité" value="${esc(m.quantite)}" data-ch="${i}" data-mat="${k}" data-k="quantite">
+          <select aria-label="Unité" data-ch="${i}" data-mat="${k}" data-k="unite">${['m3', 't', 'litres', 'm2', 'ml', 'un'].map(u => `<option ${u === m.unite ? 'selected' : ''}>${u}</option>`).join('')}</select>
+          <button class="suppr" type="button" data-suppr-mat="${i}-${k}" aria-label="Retirer le matériau">×</button>
+        </div>`).join('')}
+      <button class="btn btn-ajout" type="button" data-ajout-mat="${i}">${ICONES.plus} Ajouter un matériau</button>
+
+      <h2>Bons de livraison</h2>
+      <div class="photos">
+        ${Array.from({ length: c.blEnvoyes }).map(() => '<div class="vignette"><em>Envoyé</em></div>').join('')}
+        ${c.photos.map(ph => `<div class="vignette" style="background-image:url('${ph.apercu}')"><em>${ph.enAttente ? 'En attente' : 'Envoyé'}</em></div>`).join('')}
+        <label class="prendre">${ICONES.photo}Photo<input type="file" accept="image/*" capture="environment" data-photo="${i}"></label>
+      </div>
+
+      <div class="champ"><label for="rem${i}">Remarques sur ce chantier</label>
+        <textarea id="rem${i}" data-ch="${i}" data-k="remarques" placeholder="Ex. redescendu 4,5 m3 de 10/14 au dépôt">${esc(c.remarques)}</textarea></div>
+    </section>`;
 
   const dessiner = () => {
     const y = window.scrollY;
@@ -918,115 +978,98 @@ ROUTES.rapport = async function (param) {
     APP().innerHTML = `
       <div class="entete">
         <button class="retour" type="button" aria-label="Retour" onclick="history.back()">${ICONES.retour}</button>
-        <div><h1>Rapport de chantier</h1><p class="discret">${esc(d.bloc.villes.join(' + '))} — ${esc(dateLongue(date))}${auNomDe ? ` — au nom de ${esc(auNomDe)}` : ''}</p></div>
+        <div><h1>Rapport de chantier</h1><p class="discret">${esc(dateLongue(date))}${auNomDe ? ` — au nom de ${esc(auNomDe)}` : ''}</p></div>
       </div>
       ${envoye ? `<div class="alerte vert">${ICONES.ok}<span>Rapport envoyé. Tu peux le compléter et le renvoyer autant de fois que nécessaire.</span></div>`
-        : `<div class="alerte jaune">${ICONES.attention}<span>Rapport pas encore envoyé. Le bouton en bas l'envoie, même s'il n'y a que les repas : l'avancement et les matériaux peuvent rester vides.</span></div>`}
+        : `<div class="alerte jaune">${ICONES.attention}<span>Rapport pas encore envoyé. Le bouton en bas l'envoie, même s'il n'y a que les repas.</span></div>`}
 
       <section class="bloc">
-        <h2>Restaurant</h2>
+        <h2>Restaurant et repas</h2>
+        <p class="discret">Pour toute la journée, tous chantiers confondus.</p>
         <div class="champ"><label for="resto" class="sous">Nom</label><input id="resto" type="text" value="${esc(e.restaurant)}"></div>
         <div class="ligne-tete"><span>Repas payés</span>
           <div class="pas"><button type="button" id="moins" aria-label="Un repas de moins">−</button><output id="nbRepas">${e.repasPayes}</output><button type="button" id="plus" aria-label="Un repas de plus">+</button></div>
         </div>
       </section>
 
-      <section class="bloc">
-        <h2>Avancement</h2>
-        ${e.avancement.map((t, i) => `
-          <div class="ligne">
-            <input type="text" aria-label="Tâche" value="${esc(t.tache)}" data-av="${i}" data-k="tache" placeholder="Ex. bicouche">
-            <div class="choix" style="--n:2">
-              <button type="button" data-mode="${i}" data-v="POURCENTAGE" aria-pressed="${t.mode !== 'QUANTITE'}">En %</button>
-              <button type="button" data-mode="${i}" data-v="QUANTITE" aria-pressed="${t.mode === 'QUANTITE'}">En quantité</button>
-            </div>
-            ${t.mode === 'QUANTITE' ? `
-              <div class="materiau" style="grid-template-columns:1fr 1fr 44px">
-                <input type="text" inputmode="decimal" aria-label="Quantité faite" value="${esc(t.quantite || '')}" data-av="${i}" data-k="quantite" placeholder="Ex. 120">
-                <select aria-label="Unité" data-av="${i}" data-k="unite">${['m2', 'ml', 'm3', 't', 'un'].map(u => `<option ${u === (t.unite || 'm2') ? 'selected' : ''}>${u}</option>`).join('')}</select>
-                <button class="suppr" type="button" data-suppr-av="${i}" aria-label="Retirer la tâche">×</button>
-              </div>`
-            : `<div class="ligne-tete"><input type="range" min="0" max="100" step="5" value="${Number(t.pourcentage) || 0}" data-av="${i}" data-k="pourcentage" aria-label="Avancement en pourcent" style="flex:1">
-              <b style="min-width:52px;text-align:right" id="pct${i}">${Number(t.pourcentage) || 0} %</b>
-              <button class="suppr" type="button" data-suppr-av="${i}" aria-label="Retirer la tâche">×</button></div>
-            <div class="barre"><i class="${Number(t.pourcentage) >= 100 ? 'fini' : ''}" style="width:${Number(t.pourcentage) || 0}%"></i></div>`}
-          </div>`).join('')}
-        <button class="btn btn-ajout" type="button" id="ajoutTache">${ICONES.plus} Ajouter une tâche</button>
-      </section>
+      ${e.chantiers.length > 1 ? `<div class="choix" style="--n:${e.chantiers.length}">
+        ${e.chantiers.map((c, i) => `<button type="button" data-onglet="${i}" aria-pressed="${e.ouvert === i}">${esc(nomCourt(c.libelle).split(' / ')[0])}</button>`).join('')}
+      </div>` : ''}
+      ${e.chantiers.length ? sectionChantier(e.chantiers[e.ouvert], e.ouvert)
+        : '<section class="bloc"><p class="discret">Aucun chantier au planning pour cette journée.</p></section>'}
 
-      <section class="bloc">
-        <h2>Matériaux utilisés</h2>
-        ${e.materiaux.map((m, i) => `
-          <div class="materiau">
-            <select aria-label="Matériau" data-mat="${i}" data-k="materiau">${optionsMateriaux(d.listeMateriaux, m.materiau)}</select>
-            <input type="text" inputmode="decimal" aria-label="Quantité" value="${esc(m.quantite)}" data-mat="${i}" data-k="quantite">
-            <select aria-label="Unité" data-mat="${i}" data-k="unite">${['m3', 't', 'litres', 'm2', 'ml', 'u'].map(u => `<option ${u === m.unite ? 'selected' : ''}>${u}</option>`).join('')}</select>
-            <button class="suppr" type="button" data-suppr-mat="${i}" aria-label="Retirer le matériau">×</button>
-          </div>`).join('')}
-        <button class="btn btn-ajout" type="button" id="ajoutMat">${ICONES.plus} Ajouter un matériau</button>
-      </section>
-
-      <section class="bloc">
-        <h2>Bons de livraison</h2>
-        <div class="photos">
-          ${d.bl.map(() => `<div class="vignette"><em>Envoyé</em></div>`).join('')}
-          ${e.photos.map(p => `<div class="vignette" style="background-image:url('${p.apercu}')"><em>${p.enAttente ? 'En attente' : 'Envoyé'}</em></div>`).join('')}
-          <label class="prendre">${ICONES.photo}Photo<input type="file" accept="image/*" capture="environment" id="photo"></label>
-        </div>
-      </section>
-
-      <section class="bloc">
-        <label for="remarques">Remarques</label>
-        <textarea id="remarques" placeholder="Ex. redescendu 4,5 m3 de 10/14 au dépôt">${esc(e.remarques)}</textarea>
-      </section>
       <p class="erreur-champ" id="erreur" role="alert"></p>
       <div class="pied"><button class="btn btn-principal" type="button" id="envoyer">${envoye ? 'Renvoyer le rapport' : 'Envoyer le rapport'}</button></div>`;
 
     $('#resto').oninput = ev => { e.restaurant = ev.target.value; };
-    $('#remarques').oninput = ev => { e.remarques = ev.target.value; };
     $('#moins').onclick = () => { e.repasPayes = Math.max(0, e.repasPayes - 1); $('#nbRepas').textContent = e.repasPayes; };
     $('#plus').onclick = () => { e.repasPayes = Math.min(20, e.repasPayes + 1); $('#nbRepas').textContent = e.repasPayes; };
+    $$('[data-onglet]').forEach(b => b.onclick = () => { e.ouvert = +b.dataset.onglet; dessiner(); });
+
     $$('[data-av]').forEach(el => el.oninput = () => {
-      const i = +el.dataset.av; e.avancement[i][el.dataset.k] = el.dataset.k === 'pourcentage' ? Number(el.value) : el.value;
-      if (el.dataset.k === 'pourcentage') { $('#pct' + i).textContent = el.value + ' %'; const b = el.closest('.ligne').querySelector('.barre i'); b.style.width = el.value + '%'; b.className = Number(el.value) >= 100 ? 'fini' : ''; }
+      const c = e.chantiers[+el.dataset.ch], t = c.avancement[+el.dataset.av];
+      t[el.dataset.k] = el.dataset.k === 'pourcentage' ? Number(el.value) : el.value;
+      if (el.dataset.k === 'pourcentage') dessiner();
     });
     $$('[data-mat]').forEach(el => el.oninput = el.onchange = () => {
-      const i = +el.dataset.mat; e.materiaux[i][el.dataset.k] = el.value;
-      if (el.dataset.k === 'materiau' && unites[el.value]) { e.materiaux[i].unite = unites[el.value]; dessiner(); }
+      const c = e.chantiers[+el.dataset.ch], m = c.materiaux[+el.dataset.mat];
+      m[el.dataset.k] = el.value;
+      if (el.dataset.k === 'materiau' && unites[el.value]) { m.unite = unites[el.value]; dessiner(); }
     });
-    $$('[data-mode]').forEach(b => b.onclick = () => { e.avancement[+b.dataset.mode].mode = b.dataset.v; dessiner(); });
-    $$('[data-suppr-av]').forEach(b => b.onclick = () => { e.avancement.splice(+b.dataset.supprAv, 1); dessiner(); });
-    $$('[data-suppr-mat]').forEach(b => b.onclick = () => { e.materiaux.splice(+b.dataset.supprMat, 1); dessiner(); });
-    $('#ajoutTache').onclick = () => { e.avancement.push({ chantier: d.bloc.lieux[0] || '', tache: '', pourcentage: 0, mode: 'POURCENTAGE' }); dessiner(); };
-    $('#ajoutMat').onclick = () => { const m = d.listeMateriaux[0]; e.materiaux.push({ chantier: d.bloc.lieux[0] || '', materiau: m.materiau, quantite: '', unite: m.unite }); dessiner(); };
-    $('#photo').onchange = async ev => {
+    $$('[data-k="remarques"]').forEach(el => el.oninput = () => { e.chantiers[+el.dataset.ch].remarques = el.value; });
+    $$('[data-mode]').forEach(b => b.onclick = () => {
+      const [i, k] = b.dataset.mode.split('-').map(Number);
+      e.chantiers[i].avancement[k].mode = b.dataset.v; dessiner();
+    });
+    $$('[data-suppr-av]').forEach(b => b.onclick = () => {
+      const [i, k] = b.dataset.supprAv.split('-').map(Number);
+      e.chantiers[i].avancement.splice(k, 1); dessiner();
+    });
+    $$('[data-suppr-mat]').forEach(b => b.onclick = () => {
+      const [i, k] = b.dataset.supprMat.split('-').map(Number);
+      e.chantiers[i].materiaux.splice(k, 1); dessiner();
+    });
+    $$('[data-ajout-tache]').forEach(b => b.onclick = () => {
+      e.chantiers[+b.dataset.ajoutTache].avancement.push({ tache: '', pourcentage: 0, mode: 'POURCENTAGE' }); dessiner();
+    });
+    $$('[data-ajout-mat]').forEach(b => b.onclick = () => {
+      const m = d.listeMateriaux[0] || { materiau: '', unite: 'm3' };
+      e.chantiers[+b.dataset.ajoutMat].materiaux.push({ materiau: m.materiau, quantite: '', unite: m.unite }); dessiner();
+    });
+    $$('[data-photo]').forEach(input => input.onchange = async ev => {
       const f = ev.target.files[0]; if (!f) return;
+      const c = e.chantiers[+input.dataset.photo];
       toast('Préparation de la photo…');
       try {
         const image = await redimensionner(f);
         // Une photo = un envoi : si le réseau coupe, on ne perd pas tout le rapport.
-        const r = await envoyer('ajouter_bl', { date, auNomDe, image }, `Photo de BL du ${dateLongue(date)}`);
-        e.photos.push({ apercu: image, enAttente: !!r.enAttente });
+        const r = await envoyer('ajouter_bl', { date, auNomDe, chantier: c.libelle, image }, `Photo de BL — ${c.libelle}`);
+        c.photos.push({ apercu: image, enAttente: !!r.enAttente });
         toast(r.enAttente ? 'Photo gardée, elle partira avec le réseau.' : 'Photo envoyée.');
         dessiner();
       } catch (err) { toast(err.message); }
-    };
+    });
     $('#envoyer').onclick = soumettre;
     window.scrollTo(0, y);
   };
 
   const soumettre = async () => {
-    const vide = e.avancement.find(t => !String(t.tache).trim());
-    if (vide) { $('#erreur').textContent = 'Donne un nom à chaque tâche, ou retire-la.'; return; }
-    const sansQuantite = e.avancement.find(t => t.mode === 'QUANTITE' && !(Number(String(t.quantite).replace(',', '.')) > 0));
-    if (sansQuantite) { $('#erreur').textContent = `Indique la quantité faite pour « ${sansQuantite.tache} ».`; return; }
-    const sansQte = e.materiaux.find(m => !(Number(String(m.quantite).replace(',', '.')) > 0));
-    if (sansQte) { $('#erreur').textContent = 'Indique la quantité de chaque matériau, ou retire-le.'; return; }
+    for (const c of e.chantiers) {
+      const vide = c.avancement.find(t => !String(t.tache).trim());
+      if (vide) { e.ouvert = e.chantiers.indexOf(c); dessiner(); $('#erreur').textContent = `${c.libelle} : donne un nom à chaque tâche, ou retire-la.`; return; }
+      const sansQuantite = c.avancement.find(t => t.mode === 'QUANTITE' && !(Number(String(t.quantite).replace(',', '.')) > 0));
+      if (sansQuantite) { e.ouvert = e.chantiers.indexOf(c); dessiner(); $('#erreur').textContent = `${c.libelle} : indique la quantité faite pour « ${sansQuantite.tache} ».`; return; }
+      const sansQte = c.materiaux.find(m => !(Number(String(m.quantite).replace(',', '.')) > 0));
+      if (sansQte) { e.ouvert = e.chantiers.indexOf(c); dessiner(); $('#erreur').textContent = `${c.libelle} : indique la quantité de chaque matériau, ou retire-le.`; return; }
+    }
     const bouton = $('#envoyer'); bouton.disabled = true; bouton.textContent = 'Envoi…';
     try {
       const r = await envoyer('enregistrer_rapport', {
-        date, auNomDe, restaurant: e.restaurant.trim(), repasPayes: e.repasPayes, remarques: e.remarques.trim(),
-        avancement: e.avancement, materiaux: e.materiaux.map(m => ({ ...m, quantite: String(m.quantite).replace(',', '.') })),
+        date, auNomDe, restaurant: e.restaurant.trim(), repasPayes: e.repasPayes,
+        chantiers: e.chantiers.map(c => ({
+          libelle: c.libelle, remarques: c.remarques.trim(), avancement: c.avancement,
+          materiaux: c.materiaux.map(m => ({ ...m, quantite: String(m.quantite).replace(',', '.') })),
+        })),
       }, `Rapport du ${dateLongue(date)}`);
       if (!r.enAttente) majChef(date, { rapportEnvoye: true });
       oublierJour(date);
@@ -1087,7 +1130,7 @@ ROUTES.equipe = async function (date) {
     APP().innerHTML = `
       <div class="entete">
         <button class="retour" type="button" aria-label="Retour" onclick="aller('/accueil')">${ICONES.retour}</button>
-        <div><h1>Valider mon équipe</h1><p class="discret">${esc(d.bloc.villes.join(' + '))} — ${esc(dateLongue(date))}</p></div>
+        <div><h1>Valider mon équipe</h1><p class="discret">${esc(libellesChantiers(d.bloc).map(nomCourt).join(' + '))} — ${esc(dateLongue(date))}</p></div>
       </div>
       ${d.membres.map(carte).join('')}
       ${d.repas.payes === null ? `<div class="alerte jaune">${ICONES.attention}<span>Rapport de chantier pas encore envoyé : les repas ne peuvent pas être contrôlés.</span></div>`
@@ -1210,7 +1253,7 @@ ROUTES.bureau = async function (date) {
         </div>
         ${j ? `<p>${esc(j.hEmbauche)}–${esc(j.hPause)} · ${esc(j.hReprise)}–${esc(j.hDebauche)} · <b>${esc(j.total)}</b>
                <span class="discret">— ${esc([j.trajet, { AUCUN: 'sans repas', PANIER: 'panier', RESTAURANT: 'restaurant' }[j.repas], j.zone ? 'zone ' + j.zone : 'pas de zone'].filter(Boolean).join(', '))}</span>
-               ${j.repartition ? `<br><span class="discret">Heures réparties : ${esc(j.repartition)}</span>` : ''}</p>` : ''}
+               ${j.repartition ? `<br><span class="discret">Heures réparties : ${esc(j.repartition.split(' ; ').map(nomCourt).join(' ; '))}</span>` : ''}</p>` : ''}
         ${x.exportee ? '<p class="discret">Déjà envoyée au Suivi RH.</p>' : `
           <div class="duo">
             <button class="btn btn-clair btn-petit" type="button" data-modifier="${esc(x.personne)}">${j ? 'Corriger' : 'Saisir'}</button>
@@ -1230,7 +1273,7 @@ ROUTES.bureau = async function (date) {
     const manquantes = c.journees.filter(x => !x.journee).length;
     return `
       <section class="bloc">
-        <div class="bloc-titre">${esc(c.villes.join(' + '))}${c.client ? ' · ' + esc(c.client) : ''}</div>
+        <div class="bloc-titre">${esc(c.villes.map(nomCourt).join(' + '))}</div>
         <div class="ligne-tete">
           <span class="discret">Chef : ${esc(c.responsable || '—')}</span>
           <span class="pastille ${c.rapport.envoye ? 'vert' : 'rouge'}">Rapport ${c.rapport.envoye ? 'envoyé' : 'manquant'}</span>
