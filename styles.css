@@ -61,7 +61,8 @@ p { margin: 0; }
 /* Blocs */
 .bloc { background: var(--surface); border-radius: 14px; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
 .bloc-titre { background: var(--encre); color: #fff; margin: -16px -16px 0; padding: 10px 16px; border-radius: 14px 14px 0 0; font-size: 14px; font-weight: 600; }
-.chantier { font-family: var(--titre); font-weight: 700; font-size: 27px; line-height: 1.05; }
+.chantier { font-family: var(--titre); font-weight: 700; font-size: 27px; line-height: 1.1; }
+.chantier + .chantier { margin-top: 4px; padding-top: 4px; border-top: 1px solid var(--trait); }
 .pastilles { display: flex; flex-wrap: wrap; gap: 8px; }
 .pastille { padding: 5px 10px; border-radius: 6px; background: var(--fond); font-size: 14px; font-weight: 600; }
 .pastille.jaune { background: var(--jaune); }
@@ -147,7 +148,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .suppr { width: 44px; height: 44px; border: none; border-radius: 8px; background: var(--fond); color: var(--rouge); font-size: 22px; cursor: pointer; }
 .pas { display: flex; align-items: center; gap: 14px; }
 .pas button { width: 48px; height: 48px; border: 2px solid var(--trait); border-radius: 10px; background: var(--surface); font-size: 24px; font-weight: 700; cursor: pointer; color: var(--encre); }
-.pas output { font-size: 22px; font-weight: 700; min-width: 24px; text-align: center; }
+.pas output { font-size: 22px; font-weight: 700; min-width: 24px; text-align: center; white-space: nowrap; }
 .photos { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
 .photos .vignette { aspect-ratio: 3 / 4; border-radius: 8px; background: var(--creux) center / cover no-repeat; position: relative; }
 .photos .vignette em { position: absolute; left: 4px; bottom: 4px; font-size: 11px; font-style: normal; background: var(--jaune-pale); padding: 2px 6px; border-radius: 4px; }

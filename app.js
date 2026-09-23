@@ -12,7 +12,7 @@
  * Numéro affiché en bas de l'accueil et de l'écran de connexion.
  * À augmenter à chaque dépôt de nouveaux fichiers sur GitHub : c'est le seul numéro à changer.
  */
-const VERSION_APPLI = '20';
+const VERSION_APPLI = '21';
 
 // ---------------------------------------------------------------------------
 // Petits outils
@@ -547,8 +547,8 @@ function dessinerAccueil(a, session) {
     ${bloc ? `
       <section class="bloc">
         <div class="bloc-titre">Prévu au planning</div>
-        <div><div class="chantier">${esc(libellesChantiers(bloc).map(nomCourt).join(' + '))}</div>
-          <p class="discret">${esc([bloc.client, bloc.taches].filter(Boolean).join(' — '))}</p></div>
+        <div>${libellesChantiers(bloc).map(c => `<div class="chantier">${esc(nomCourt(c))}</div>`).join('')}
+          ${bloc.taches ? `<p class="discret">${esc(bloc.taches)}</p>` : ''}</div>
         <div class="pastilles"><span class="pastille">Chef : ${esc(bloc.responsable)}</span></div>
         <div class="sep"><span class="sous">Équipe</span><p>${esc(bloc.equipe.join(', '))}</p></div>
       </section>`
@@ -621,6 +621,19 @@ function partsMinutes(e, total) {
   return [...debut, total - debut.reduce((a, b) => a + b, 0)];
 }
 
+/** Réaffiche les heures de chaque chantier après un changement d'horaires. */
+function majRepartition(e, total) {
+  const sorties = $$('[data-repartition]');
+  if (!sorties.length) return;
+  const parts = partsMinutes(e, total);
+  sorties.forEach((o, i) => {
+    o.textContent = duree(Math.max(0, parts[i]));
+    o.className = parts[i] < 0 ? 'erreur-champ' : '';
+  });
+  const trop = $('#trop-reparti');
+  if (trop) trop.hidden = !parts.some(m => m < 0);
+}
+
 function choix(nom, options, valeur, n) {
   return `<div class="choix" style="--n:${n || options.length}" role="group">
     ${options.map(([v, lib]) => `<button type="button" data-choix="${nom}" data-v="${esc(v)}" aria-pressed="${String(valeur) === String(v)}">${esc(lib)}</button>`).join('')}
@@ -653,14 +666,14 @@ function formulaireJournee(e, ref, interimaire) {
         <div class="chips">${e.chantiers.map(c => `<span class="chip">${esc(nomCourt(c))}<button type="button" data-retirer="${esc(c)}" aria-label="Retirer ${esc(c)}">×</button></span>`).join('') || '<span class="discret">Aucun chantier choisi</span>'}</div>
         <select id="ajoutChantier" aria-label="Ajouter un chantier">
           <option value="">+ Ajouter un chantier</option>
-          ${chantiers.filter(c => !e.chantiers.includes(c.libelle)).map(c => `<option>${esc(c.libelle)}</option>`).join('')}
+          ${chantiers.filter(c => !e.chantiers.includes(c.libelle)).map(c => `<option value="${esc(c.libelle)}">${esc(nomCourt(c.libelle))}</option>`).join('')}
         </select>
       </div>
       <div class="champ">
         <label for="lieuEmbauche">Où as-tu embauché ?</label>
         <select id="lieuEmbauche" data-champ="lieuEmbauche">
           ${e.lieuEmbauche ? '' : '<option value="">Choisir…</option>'}
-          ${e.chantiers.length ? `<optgroup label="Sur le chantier">${e.chantiers.map(c => `<option ${c === e.lieuEmbauche ? 'selected' : ''}>${esc(c)}</option>`).join('')}</optgroup>` : ''}
+          ${e.chantiers.length ? `<optgroup label="Sur le chantier">${e.chantiers.map(c => `<option value="${esc(c)}" ${c === e.lieuEmbauche ? 'selected' : ''}>${esc(nomCourt(c))}</option>`).join('')}</optgroup>` : ''}
           <optgroup label="Au dépôt"><option value="${esc(ref.depot)}" ${e.lieuEmbauche === ref.depot ? 'selected' : ''}>Dépôt d'Objat</option></optgroup>
           <optgroup label="Ailleurs (fournisseur, autre commune)">
             ${communes.filter(l => !e.chantiers.includes(l.libelle)).map(l => `<option ${l.libelle === e.lieuEmbauche ? 'selected' : ''}>${esc(l.libelle)}</option>`).join('')}
@@ -680,14 +693,14 @@ function formulaireJournee(e, ref, interimaire) {
           <div class="ligne-tete"><span>${esc(nomCourt(c))}</span>
             <div class="pas">
               ${dernier ? '' : `<button type="button" data-part="${i}" data-sens="-1" aria-label="Moins un quart d'heure">−</button>`}
-              <output class="${parts[i] < 0 ? 'erreur-champ' : ''}">${duree(Math.max(0, parts[i]))}</output>
+              <output data-repartition="${i}" class="${parts[i] < 0 ? 'erreur-champ' : ''}">${duree(Math.max(0, parts[i]))}</output>
               ${dernier ? '' : `<button type="button" data-part="${i}" data-sens="1" aria-label="Plus un quart d'heure">+</button>`}
             </div>
           </div>
           ${dernier ? '<p class="discret">Le reste de la journée.</p>' : ''}
         </div>`;
       }).join('')}
-      ${partsMinutes(e, total).some(m => m < 0) ? `<p class="erreur-champ">Tu as réparti plus que ta journée : enlève du temps ailleurs.</p>` : ''}
+      <p class="erreur-champ" id="trop-reparti" ${partsMinutes(e, total).some(m => m < 0) ? '' : 'hidden'}>Tu as réparti plus que ta journée : enlève du temps ailleurs.</p>
     </section>` : ''}
 
     <section class="bloc">
@@ -730,11 +743,14 @@ function brancherFormulaire(e, redessiner) {
     el.addEventListener('input', () => {
       const k = el.dataset.champ;
       if (k === 'tachesSuppMinAutre') e.tachesSuppMin = el.value; else e[k] = el.value;
+      const [a, b, c, d] = [e.hEmbauche, e.hPause, e.hReprise, e.hDebauche].map(minutes);
+      const bon = ![a, b, c, d].some(x => x === null) && a < b && b <= c && c < d;
+      const total = bon ? (b - a) + (d - c) : null;
       const t = $('#total');
-      if (t) {
-        const [a, b, c, d] = [e.hEmbauche, e.hPause, e.hReprise, e.hDebauche].map(minutes);
-        t.textContent = [a, b, c, d].some(x => x === null) || !(a < b && b <= c && c < d) ? '—' : duree((b - a) + (d - c));
-      }
+      if (t) t.textContent = total === null ? '—' : duree(total);
+      // La répartition dépend du total : elle doit suivre le changement d'horaires, sans redessiner
+      // l'écran, ce qui interromprait la saisie en cours.
+      if (total !== null) majRepartition(e, total);
     });
   });
   $$('[data-choix]').forEach(b => b.onclick = () => {
