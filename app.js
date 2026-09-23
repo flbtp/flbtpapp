@@ -12,7 +12,7 @@
  * Numéro affiché en bas de l'accueil et de l'écran de connexion.
  * À augmenter à chaque dépôt de nouveaux fichiers sur GitHub : c'est le seul numéro à changer.
  */
-const VERSION_APPLI = '19';
+const VERSION_APPLI = '20';
 
 // ---------------------------------------------------------------------------
 // Petits outils
@@ -246,6 +246,7 @@ function route() {
   if (!session) return ecranConnexion();
   const f = ROUTES[nom] || ROUTES.accueil;
   window.scrollTo(0, 0);
+  ecranAffiche = nom || 'accueil';
   f(param);
 }
 
@@ -259,9 +260,14 @@ function ecranCourant() {
 }
 
 let minuteurLent = null;
-/** Garde les dimensions du dernier écran quitté : c'est lui qu'on cherche quand un défilement surprend. */
+let ecranAffiche = '';
+
+/**
+ * Garde les dimensions de l'écran qu'on QUITTE : c'est lui qu'on cherche quand un défilement surprend.
+ * On se fie au nom retenu au dernier affichage, pas à l'adresse, qui a déjà changé à cet instant.
+ */
 function mesurerEcran() {
-  const ici = location.hash.replace(/^#\/?/, '').split('/')[0];
+  const ici = ecranAffiche;
   if (!ici || ici === 'diagnostic') return;
   stock.ecrire('mesures', {
     contenu: document.documentElement.scrollHeight,
@@ -602,6 +608,19 @@ function etatInitial(date, journee, bloc) {
   };
 }
 
+/**
+ * Minutes par chantier. Les premiers sont réglés au quart d'heure, le dernier prend le reste :
+ * le total tombe toujours juste, sans que personne ait à faire l'addition.
+ */
+function partsMinutes(e, total) {
+  const n = e.chantiers.length;
+  const debut = e.chantiers.slice(0, n - 1).map(c => {
+    const v = e.parts[c];
+    return v === undefined ? Math.round(total / n / 15) * 15 : v;
+  });
+  return [...debut, total - debut.reduce((a, b) => a + b, 0)];
+}
+
 function choix(nom, options, valeur, n) {
   return `<div class="choix" style="--n:${n || options.length}" role="group">
     ${options.map(([v, lib]) => `<button type="button" data-choix="${nom}" data-v="${esc(v)}" aria-pressed="${String(valeur) === String(v)}">${esc(lib)}</button>`).join('')}
@@ -650,19 +669,25 @@ function formulaireJournee(e, ref, interimaire) {
       </div>
     </section>
 
-    ${e.chantiers.length > 1 ? `
+    ${e.chantiers.length > 1 && total !== null ? `
     <section class="bloc">
       <h2>Temps passé sur chaque chantier</h2>
-      <p class="discret">Fais glisser : les parts se règlent entre elles, pas besoin de tomber juste.</p>
+      <p class="discret">Par quarts d'heure. Le dernier chantier prend automatiquement ce qui reste.</p>
       ${e.chantiers.map((c, i) => {
-        const parts = e.chantiers.map(x => (e.parts[x] === undefined ? Math.round(100 / e.chantiers.length) : e.parts[x]));
-        const somme = parts.reduce((a, b) => a + b, 0) || 1;
-        const pct = Math.round(parts[i] * 100 / somme);
+        const parts = partsMinutes(e, total);
+        const dernier = i === e.chantiers.length - 1;
         return `<div class="ligne">
-          <div class="ligne-tete"><span>${esc(nomCourt(c))}</span><b>${total === null ? pct + ' %' : duree(Math.round(total * pct / 100))}</b></div>
-          <input type="range" min="0" max="100" step="5" value="${parts[i]}" data-part="${esc(c)}" aria-label="Part de ${esc(c)}">
+          <div class="ligne-tete"><span>${esc(nomCourt(c))}</span>
+            <div class="pas">
+              ${dernier ? '' : `<button type="button" data-part="${i}" data-sens="-1" aria-label="Moins un quart d'heure">−</button>`}
+              <output class="${parts[i] < 0 ? 'erreur-champ' : ''}">${duree(Math.max(0, parts[i]))}</output>
+              ${dernier ? '' : `<button type="button" data-part="${i}" data-sens="1" aria-label="Plus un quart d'heure">+</button>`}
+            </div>
+          </div>
+          ${dernier ? '<p class="discret">Le reste de la journée.</p>' : ''}
         </div>`;
       }).join('')}
+      ${partsMinutes(e, total).some(m => m < 0) ? `<p class="erreur-champ">Tu as réparti plus que ta journée : enlève du temps ailleurs.</p>` : ''}
     </section>` : ''}
 
     <section class="bloc">
@@ -719,7 +744,14 @@ function brancherFormulaire(e, redessiner) {
     else e[k] = v;
     redessiner();
   });
-  $$('[data-part]').forEach(i => i.oninput = () => { e.parts[i.dataset.part] = Number(i.value); redessiner(); });
+  $$('[data-part]').forEach(b => b.onclick = () => {
+    const [a2, b2, c2, d2] = [e.hEmbauche, e.hPause, e.hReprise, e.hDebauche].map(minutes);
+    const total = (b2 - a2) + (d2 - c2);
+    const i = +b.dataset.part;
+    const actuelles = partsMinutes(e, total);
+    e.parts[e.chantiers[i]] = Math.max(0, actuelles[i] + 15 * Number(b.dataset.sens));
+    redessiner();
+  });
   const ajout = $('#ajoutChantier');
   if (ajout) ajout.onchange = () => {
     if (ajout.value) { e.chantiers.push(ajout.value); if (!e.lieuEmbauche) e.lieuEmbauche = ajout.value; redessiner(); }
@@ -749,13 +781,23 @@ function controler(e, interimaire) {
     if (!(m > 0 && m <= 240)) return 'Indique la durée de la tâche (en minutes).';
   }
   if (!e.repas) return 'Choisis le repas du midi.';
+  if (e.chantiers.length > 1) {
+    const total = (b - a) + (d - c);
+    if (partsMinutes(e, total).some(m => m < 0)) return 'Tu as réparti plus de temps que ta journée.';
+  }
   return null;
 }
 
 function donneesJournee(e) {
   return {
     date: e.date, chantiers: e.chantiers, lieuEmbauche: e.lieuEmbauche,
-    repartition: e.chantiers.map(c => ({ chantier: c, part: e.parts[c] === undefined ? Math.round(100 / e.chantiers.length) : e.parts[c] })),
+    repartition: (() => {
+      const [a, b, c, d] = [e.hEmbauche, e.hPause, e.hReprise, e.hDebauche].map(minutes);
+      if ([a, b, c, d].some(x => x === null)) return [];
+      const total = (b - a) + (d - c);
+      const m = partsMinutes(e, total);
+      return e.chantiers.map((ch, i) => ({ chantier: ch, part: Math.max(0, m[i]) }));
+    })(),
     hEmbauche: e.hEmbauche, hPause: e.hPause, hReprise: e.hReprise, hDebauche: e.hDebauche,
     trajet: e.trajet, tachesSupp: e.avecTaches ? e.tachesSupp.trim() : '',
     tachesSuppMin: e.avecTaches ? Number(e.tachesSuppMin) : 0, repas: e.repas,
@@ -945,7 +987,7 @@ ROUTES.rapport = async function (param) {
               <button class="suppr" type="button" data-suppr-av="${i}-${k}" aria-label="Retirer la tâche">×</button>
             </div>`
           : `<div class="ligne-tete"><input type="range" min="0" max="100" step="5" value="${Number(t.pourcentage) || 0}" data-ch="${i}" data-av="${k}" data-k="pourcentage" aria-label="Avancement en pourcent" style="flex:1">
-              <b style="min-width:52px;text-align:right">${Number(t.pourcentage) || 0} %</b>
+              <b class="valeur" style="min-width:52px;text-align:right">${Number(t.pourcentage) || 0} %</b>
               <button class="suppr" type="button" data-suppr-av="${i}-${k}" aria-label="Retirer la tâche">×</button></div>
             <div class="barre"><i class="${Number(t.pourcentage) >= 100 ? 'fini' : ''}" style="width:${Number(t.pourcentage) || 0}%"></i></div>`}
         </div>`).join('')}
@@ -1009,7 +1051,13 @@ ROUTES.rapport = async function (param) {
     $$('[data-av]').forEach(el => el.oninput = () => {
       const c = e.chantiers[+el.dataset.ch], t = c.avancement[+el.dataset.av];
       t[el.dataset.k] = el.dataset.k === 'pourcentage' ? Number(el.value) : el.value;
-      if (el.dataset.k === 'pourcentage') dessiner();
+      if (el.dataset.k !== 'pourcentage') return;
+      // On met à jour le texte et la barre à la main : redessiner couperait le glissement en cours.
+      const ligne = el.closest('.ligne');
+      ligne.querySelector('.valeur').textContent = `${el.value} %`;
+      const barre = ligne.querySelector('.barre i');
+      barre.style.width = el.value + '%';
+      barre.className = Number(el.value) >= 100 ? 'fini' : '';
     });
     $$('[data-mat]').forEach(el => el.oninput = el.onchange = () => {
       const c = e.chantiers[+el.dataset.ch], m = c.materiaux[+el.dataset.mat];
