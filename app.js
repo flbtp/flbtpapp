@@ -12,7 +12,7 @@
  * Numéro affiché en bas de l'accueil et de l'écran de connexion.
  * À augmenter à chaque dépôt de nouveaux fichiers sur GitHub : c'est le seul numéro à changer.
  */
-const VERSION_APPLI = '21';
+const VERSION_APPLI = '22';
 
 // ---------------------------------------------------------------------------
 // Petits outils
@@ -489,18 +489,19 @@ ROUTES.accueil = async function () {
 /** Ce que le chef doit voir sans ouvrir d'écran : ce qui l'attend, et ce qui est déjà fait. */
 function resumeChef(a, moi) {
   const c = a.chef || { aValider: 0, manquants: [], validees: 0, rapportEnvoye: false };
+  // Une seule ligne, séparée par des points : l'accueil du chef est déjà chargé.
   const lignes = [];
-  if (c.aValider) lignes.push(`<b>${c.aValider} journée${c.aValider > 1 ? 's' : ''} à valider.</b>`);
+  if (c.aValider) lignes.push(`<b>${c.aValider} à valider</b>`);
   const autres = c.manquants.filter(n => n !== moi);
-  if (c.manquants.includes(moi)) lignes.push("Ta propre journée n'est pas encore saisie.");
-  if (autres.length) lignes.push(`Pas encore saisie : ${esc(autres.join(', '))}.`);
-  if (!c.rapportEnvoye) lignes.push('Rapport de chantier pas encore envoyé.');
+  if (c.manquants.includes(moi)) lignes.push('ta journée manque');
+  if (autres.length) lignes.push(`${autres.length} sans saisie (${esc(autres.join(', '))})`);
+  if (!c.rapportEnvoye) lignes.push('rapport à envoyer');
   const rienAFaire = !lignes.length;
   if (rienAFaire) lignes.push(`Équipe validée (${c.validees}) et rapport envoyé. Rien à faire.`);
 
   return `
     <div class="alerte ${rienAFaire ? 'vert' : (c.aValider ? 'jaune' : 'rouge')}">
-      ${rienAFaire ? ICONES.ok : ICONES.attention}<span>${lignes.join('<br>')}</span>
+      ${rienAFaire ? ICONES.ok : ICONES.attention}<span>${lignes.join(' · ')}</span>
     </div>
     <div class="duo">
       <button class="btn ${c.rapportEnvoye ? 'btn-sombre' : 'btn-principal'} btn-petit" type="button" onclick="aller('/rapport/${a.date}')">Rapport de chantier</button>
@@ -548,9 +549,17 @@ function dessinerAccueil(a, session) {
       <section class="bloc">
         <div class="bloc-titre">Prévu au planning</div>
         <div>${libellesChantiers(bloc).map(c => `<div class="chantier">${esc(nomCourt(c))}</div>`).join('')}
-          ${bloc.taches ? `<p class="discret">${esc(bloc.taches)}</p>` : ''}</div>
+          ${bloc.taches && bloc.taches !== (bloc.taches_par_personne || {})[session.personne] ? `<p class="discret">${esc(bloc.taches)}</p>` : ''}</div>
         <div class="pastilles"><span class="pastille">Chef : ${esc(bloc.responsable)}</span></div>
-        <div class="sep"><span class="sous">Équipe</span><p>${esc(bloc.equipe.join(', '))}</p></div>
+        ${(bloc.taches_par_personne || {})[session.personne] ? `
+          <p class="ma-tache"><b>Ta tâche :</b> ${esc(bloc.taches_par_personne[session.personne])}</p>` : ''}
+        <details class="sep depliant">
+          <summary>Équipe (${bloc.equipe.length})</summary>
+          ${bloc.equipe.map(n => `<div class="equipier">
+            <span class="qui">${esc(n)}${n === session.personne ? ' (toi)' : ''}</span>
+            <span class="quoi">${esc((bloc.taches_par_personne || {})[n] || '')}</span>
+          </div>`).join('')}
+        </details>
       </section>`
       : `<section class="bloc"><p>${a.planningTrouve ? "Tu n'es pas au planning aujourd'hui." : "Le planning du jour n'est pas encore disponible."}</p>
          <p class="discret">Si tu as travaillé, saisis quand même ta journée.</p></section>`}
@@ -1178,6 +1187,7 @@ ROUTES.equipe = async function (date) {
           <span class="pastille ${pastille[1]}">${esc(pastille[0])}</span></div>
         <p>${esc(j.hEmbauche)}–${esc(j.hPause)} · ${esc(j.hReprise)}–${esc(j.hDebauche)} · <b>${esc(j.total)}</b></p>
         <p class="discret">${esc([j.trajet, j.tachesSuppMin ? `${j.tachesSuppMin} min ${j.tachesSupp}` : '', { AUCUN: 'Pas de repas', PANIER: 'Panier', RESTAURANT: 'Restaurant' }[j.repas]].filter(Boolean).join(' — '))}</p>
+        ${(d.bloc.taches_par_personne || {})[m.personne] ? `<p class="discret">Au planning : ${esc(d.bloc.taches_par_personne[m.personne])}</p>` : ''}
         ${j.statut === 'SIGNALEE' ? `<p class="discret">Motif : ${esc(j.signalement)}</p>` : ''}
         ${aValider ? (signalement[m.personne] !== undefined ? `
           <div class="champ"><label for="motif-${esc(m.personne)}" class="sous">Qu'est-ce qui ne va pas ?</label>

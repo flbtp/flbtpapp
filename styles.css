@@ -211,3 +211,13 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   h1 { font-size: 26px; }
   .jour { padding: 6px 0; }
 }
+
+/* Équipe : une ligne par personne, sa tâche à droite, tronquée pour tenir sur une ligne. */
+.equipier { display: flex; justify-content: space-between; gap: 10px; font-size: 15px; line-height: 1.35; }
+.equipier .qui { font-weight: 600; white-space: nowrap; }
+.equipier .quoi { color: var(--gris); text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+
+.depliant summary { font-size: 15px; font-weight: 600; color: var(--gris); cursor: pointer; padding: 2px 0; }
+.depliant[open] summary { margin-bottom: 6px; }
+
+.ma-tache { background: var(--jaune-pale); border-radius: 8px; padding: 8px 10px; font-size: 16px; }
