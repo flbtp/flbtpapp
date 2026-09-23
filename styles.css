@@ -180,3 +180,33 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 }
 
 .version { font: inherit; font-size: 13px; color: var(--gris); text-align: center; margin: 4px auto 0; background: none; border: none; padding: 8px 12px; cursor: pointer; text-decoration: underline dotted; display: block; }
+
+/*
+ * Écrans courts : on resserre l'espacement pour que l'accueil tienne d'une pièce.
+ * Le contenu ne change pas, seuls les vides diminuent — quelques dizaines de pixels suffisaient
+ * à faire apparaître un défilement de rien du tout.
+ */
+@media (max-height: 900px) {
+  .app { gap: 14px; padding-top: calc(18px + env(safe-area-inset-top, 0px)); padding-bottom: calc(18px + env(safe-area-inset-bottom, 0px)); }
+  .bloc { padding: 14px; gap: 10px; }
+  .bloc-titre { margin: -14px -14px 0; padding: 8px 14px; }
+  .btn { min-height: 54px; }
+  .btn-petit { min-height: 46px; }
+  .pied { gap: 8px; }
+  .jour { padding: 8px 0; }
+  .version { padding: 4px 12px; }
+  h1 { font-size: 29px; }
+}
+
+/* Écrans vraiment courts : second cran, pour l'accueil du chef qui est le plus chargé. */
+@media (max-height: 780px) {
+  .app { gap: 11px; padding-top: calc(14px + env(safe-area-inset-top, 0px)); padding-bottom: calc(14px + env(safe-area-inset-bottom, 0px)); }
+  .bloc { padding: 12px; gap: 8px; }
+  .bloc-titre { margin: -12px -12px 0; padding: 7px 12px; }
+  .btn { min-height: 50px; font-size: 17px; }
+  .btn-petit { min-height: 44px; font-size: 15px; }
+  .alerte { padding: 10px 12px; font-size: 14px; }
+  .chantier { font-size: 24px; }
+  h1 { font-size: 26px; }
+  .jour { padding: 6px 0; }
+}

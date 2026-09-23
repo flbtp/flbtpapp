@@ -12,7 +12,7 @@
  * Numéro affiché en bas de l'accueil et de l'écran de connexion.
  * À augmenter à chaque dépôt de nouveaux fichiers sur GitHub : c'est le seul numéro à changer.
  */
-const VERSION_APPLI = '16';
+const VERSION_APPLI = '18';
 
 // ---------------------------------------------------------------------------
 // Petits outils
@@ -238,6 +238,7 @@ function aller(chemin) { if (location.hash === '#' + chemin) route(); else locat
 window.addEventListener('hashchange', route);
 
 function route() {
+  mesurerEcran();
   clearTimeout(minuteurLent);
   const session = stock.lire('session');
   const [nom, ...reste] = location.hash.replace(/^#\/?/, '').split('/');
@@ -258,6 +259,19 @@ function ecranCourant() {
 }
 
 let minuteurLent = null;
+/** Garde les dimensions du dernier écran quitté : c'est lui qu'on cherche quand un défilement surprend. */
+function mesurerEcran() {
+  const ici = location.hash.replace(/^#\/?/, '').split('/')[0];
+  if (!ici || ici === 'diagnostic') return;
+  stock.ecrire('mesures', {
+    contenu: document.documentElement.scrollHeight,
+    ecran: window.innerHeight,
+    largeur: window.innerWidth,
+    densite: window.devicePixelRatio,
+  });
+  stock.ecrire('dernierEcran', ici);
+}
+
 function chargement(texte = 'Chargement…') {
   clearTimeout(minuteurLent);
   const ecran = ecranCourant();
@@ -1354,12 +1368,25 @@ ROUTES.diagnostic = function () {
     <p class="discret">Les 30 derniers échanges avec le serveur, du plus récent au plus ancien. Fais une capture d'écran pour l'envoyer.</p>
     <p class="discret" style="word-break:break-all;font-size:12px">Serveur : …${esc(SERVEUR.slice(-24))}</p>
     <section class="bloc">
+      <h2>Mesures de l'écran</h2>
+      <p class="discret">À relever quand un écran défile alors qu'il semble tenir : l'écart entre les deux premières
+      lignes dit de combien ça dépasse. Reviens d'abord sur l'écran fautif, puis ouvre ce diagnostic.</p>
+      <div class="resume"><span>Hauteur du contenu</span><span id="m1">—</span></div>
+      <div class="resume"><span>Hauteur de l'écran</span><span id="m2">—</span></div>
+      <div class="resume"><span>Largeur · densité</span><span id="m3">—</span></div>
+      <div class="resume"><span>Dernier écran quitté</span><span>${esc(stock.lire('dernierEcran', '—'))}</span></div>
+    </section>
+    <section class="bloc">
       ${t.length ? t.map(x => `<div class="resume"><span>${esc(x.h)} · ${esc(x.action)}</span><span>${(x.ms / 1000).toFixed(1)} s</span></div>
         <p class="discret" style="margin:-6px 0 4px;${String(x.issue).startsWith('ok') ? '' : 'color:var(--rouge)'}">${esc(x.issue)}</p>`).join('') : '<p class="discret">Aucun échange enregistré.</p>'}
     </section>
     ${f.length ? `<div class="alerte jaune">${ICONES.horloge}<span>${f.length} envoi(s) en attente : ${esc(f.map(x => x.libelle).join(', '))}</span></div>` : ''}
     <div class="pied"><button class="btn btn-clair btn-petit" type="button" id="vider">Effacer le diagnostic</button></div>`;
   $('#vider').onclick = () => { stock.effacer('diag'); route(); };
+  const m = stock.lire('mesures', {});
+  $('#m1').textContent = m.contenu ? m.contenu + ' px' : '—';
+  $('#m2').textContent = m.ecran ? m.ecran + ' px' : '—';
+  $('#m3').textContent = m.largeur ? `${m.largeur} px · ×${m.densite}` : '—';
 };
 
 // ---------------------------------------------------------------------------
