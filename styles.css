@@ -282,3 +282,4 @@ button.compteur { cursor: pointer; }
 .bande-jours [aria-current="true"] { box-shadow: inset 0 -4px 0 var(--encre); }
 .jour.justifiee { background: var(--creux); color: var(--gris); }
 .mini-aide { font-size: 13px; margin-top: -12px; text-align: center; }
+[hidden] { display: none !important; }

@@ -12,7 +12,7 @@
  * Numéro affiché en bas de l'accueil et de l'écran de connexion.
  * À augmenter à chaque dépôt de nouveaux fichiers sur GitHub : c'est le seul numéro à changer.
  */
-const VERSION_APPLI = '31';
+const VERSION_APPLI = '34';
 
 // ---------------------------------------------------------------------------
 // Petits outils
@@ -181,7 +181,10 @@ function file() { return stock.lire('file', []); }
 
 /** Envoie tout de suite ; sans réseau, met en file et renvoie { enAttente: true }. */
 async function envoyer(action, donnees, libelle) {
-  const element = { action, donnees, idEnvoi: uuid(), libelle, date: new Date().toISOString() };
+  // L'envoi garde le nom de son auteur : il ne partira jamais sous le compte de quelqu'un d'autre
+  // qui se connecterait ensuite sur ce téléphone.
+  const element = { action, donnees, idEnvoi: uuid(), libelle, date: new Date().toISOString(),
+    personne: (stock.lire('session') || {}).personne || '' };
   try {
     const r = await appel(action, donnees, element.idEnvoi);
     return { envoye: true, reponse: r };
@@ -200,7 +203,8 @@ async function viderFile() {
   if (videEnCours || !stock.lire('session')) return;
   videEnCours = true;
   try {
-    for (const el of file()) {
+    const moi = (stock.lire('session') || {}).personne;
+    for (const el of file().filter(x => !x.personne || x.personne === moi)) {
       try {
         await appel(el.action, el.donnees, el.idEnvoi);
         stock.ecrire('file', file().filter(x => x.idEnvoi !== el.idEnvoi));
@@ -218,7 +222,8 @@ async function viderFile() {
 }
 
 function majBandeau() {
-  const n = file().length;
+  const moi = (stock.lire('session') || {}).personne;
+  const n = file().filter(x => !x.personne || x.personne === moi).length;
   const b = $('#bandeau');
   if (n) {
     b.textContent = `${n} envoi${n > 1 ? 's' : ''} en attente de réseau — partira tout seul`;
@@ -247,9 +252,11 @@ function route() {
   const [nom, ...reste] = location.hash.replace(/^#\/?/, '').split('/');
   const param = reste.join('/');                       // ex. « 2026-09-23/WILL%20F »
   if (!session) return ecranConnexion();
-  const f = ROUTES[nom] || ROUTES.accueil;
+  // Profil BUREAU : son accueil est l'écran bureau ; sa propre journée est sous « Ma journée ».
+  const cle = (!nom || nom === 'accueil') && session.bureau ? 'bureau' : nom;
+  const f = ROUTES[cle] || ROUTES.accueil;
   window.scrollTo(0, 0);
-  ecranAffiche = nom || 'accueil';
+  ecranAffiche = cle || 'accueil';
   f(param);
 }
 
@@ -291,7 +298,7 @@ function chargement(texte = 'Chargement…') {
 
 function deconnecter() {
   stock.effacer('session');
-  ['accueil', 'jours', 'dernierEnvoi'].forEach(stock.effacer);
+  ['accueil', 'jours', 'dernierEnvoi', 'refus', 'filtreControles'].forEach(stock.effacer);
   aller('/');
 }
 
@@ -381,8 +388,9 @@ async function ecranConnexion() {
     try {
       const r = await appel('connexion', { personne: choisi, code });
       // Ce qui reste d'une session précédente n'a rien à faire ici : on repart propre.
-      ['accueil', 'jours', 'ref', 'dernierEnvoi'].forEach(stock.effacer);
-      stock.ecrire('session', { jeton: r.jeton, personne: r.personne, type: r.type, prenom: r.prenom });
+      // Rien de la personne d'avant ne doit s'afficher : écrans gardés, refus, filtre du bureau.
+      ['accueil', 'jours', 'ref', 'dernierEnvoi', 'refus', 'filtreControles'].forEach(stock.effacer);
+      stock.ecrire('session', { jeton: r.jeton, personne: r.personne, type: r.type, prenom: r.prenom, bureau: !!r.bureau });
       stock.ecrire('dernierNom', choisi);
       aller('/accueil');
     } catch (e) {
@@ -422,6 +430,11 @@ function majChef(date, modif) {
   if (!acc || acc.date !== date || !acc.chef) return;
   Object.assign(acc.chef, modif);
   stock.ecrire('accueil', acc);
+}
+
+/** L'accueil personnel : « Ma journée » pour un profil bureau (dont l'accueil est l'écran bureau). */
+function accueilPerso() {
+  return (stock.lire('session') || {}).bureau ? '/ma-journee' : '/accueil';
 }
 
 /** Après une action qui change l'état du jour, la copie du téléphone doit être redemandée. */
@@ -465,12 +478,14 @@ const LIBELLES_STATUT = {
 };
 const messageAbsence = motif => `Journée justifiée par le bureau (${motif}). Vois avec le bureau si nécessaire.`;
 
+ROUTES['ma-journee'] = function () { return ROUTES.accueil(); };
+
 ROUTES.accueil = async function () {
   const toujoursIci = ecranCourant();
   const session = stock.lire('session');
   const date = aujourdhui();
   let a = stock.lire('accueil');
-  if (a && a.date !== date) a = null;
+  if (a && (a.date !== date || (a.personne && a.personne !== session.personne))) a = null;
   if (a) dessinerAccueil(a, session); else chargement();
   if (a && age(a) < 90 * 1000) { viderFile(); return; }        // à jour : inutile de redemander
   try {
@@ -502,6 +517,7 @@ function resumeChef(a, moi) {
   const autres = c.manquants.filter(n => n !== moi);
   if (c.manquants.includes(moi)) lignes.push('ta journée manque');
   if (autres.length) lignes.push(`${autres.length} sans saisie (${esc(autres.join(', '))})`);
+  if ((c.partis || []).length) lignes.push(`${c.partis.length} parti${c.partis.length > 1 ? 's' : ''} dans une autre équipe`);
   if (!c.rapportEnvoye) lignes.push('rapport à envoyer');
   const rienAFaire = !lignes.length;
   if (rienAFaire) lignes.push(`Équipe validée (${c.validees}) et rapport envoyé. Rien à faire.`);
@@ -531,18 +547,10 @@ function dessinerAccueil(a, session) {
   else action = `<div class="alerte vert">${ICONES.ok}<span>Journée validée. Pour une correction, vois avec ton chef ou le bureau.</span></div>`;
 
   // Le bureau ne saisit pas d'heures : son accueil mène directement à son écran.
-  if (a.estBureau && !a.bloc && !j) {
-    APP().innerHTML = `
-      <div class="entete">
-        <img class="embleme" src="embleme.png" alt="" aria-hidden="true">
-        <div><p class="discret">Bonjour ${esc(session.prenom || session.personne)}</p><h1>${esc(dateLongue(a.date))}</h1></div>
-        <button class="icone-btn" type="button" aria-label="Se déconnecter" id="sortir">${ICONES.sortie}</button>
-      </div>
-      <section class="bloc"><p>Contrôle des journées et envoi dans le Suivi RH.</p></section>
-      <button class="btn btn-principal" type="button" onclick="aller('/bureau/${a.date}')">Écran bureau</button>
-      <div class="pied"><button type="button" class="version" onclick="aller('/diagnostic')">Version ${esc(VERSION_APPLI)}</button></div>`;
-    $('#sortir').onclick = () => { if (confirm('Se déconnecter de ce téléphone ?')) { stock.effacer('dernierNom'); deconnecter(); } };
-    return;
+  // Session ouverte avant la version 32 : le rôle bureau n'était pas gardé. On l'apprend ici.
+  if (a.estBureau && !session.bureau) {
+    session.bureau = true; stock.ecrire('session', session);
+    if (!/^#\/?ma-journee/.test(location.hash)) return aller('/bureau');
   }
 
   APP().innerHTML = `
@@ -568,6 +576,9 @@ function dessinerAccueil(a, session) {
       : `<section class="bloc"><p>${a.planningTrouve ? "Tu n'es pas au planning aujourd'hui." : "Pas de planning pour aujourd'hui."}</p>
          <p class="discret">${a.planningTrouve ? 'Si tu as travaillé, saisis quand même ta journée.'
            : 'Saisis ta journée en choisissant tes chantiers : tu pourras ensuite faire le rapport et valider ceux qui étaient avec toi.'}</p></section>`}
+    ${a.journee && bloc && a.chefDuJour && a.chefDuJour !== bloc.responsable && a.chefDuJour !== session.personne
+      ? `<div class="alerte jaune">${ICONES.attention}<span>D'après tes chantiers, tu es aujourd'hui dans l'équipe de <b>${esc(a.chefDuJour)}</b> : c'est lui qui valide ta journée.</span></div>` : ''}
+    ${a.chefDeFait ? `<div class="alerte jaune">${ICONES.attention}<span>Personne n'était prévu sur tes chantiers : tu en es le <b>chef de fait</b>. Tu fais le rapport et tu valides ceux qui te rejoignent ; ta propre journée est validée par le bureau.</span></div>` : ''}
     ${action}
     ${a.estResponsable ? resumeChef(a, session.personne) : ''}
     ${a.estBureau ? `<button class="btn btn-clair btn-petit" type="button" onclick="aller('/bureau/${a.date}')">Écran bureau</button>` : ''}
@@ -898,9 +909,9 @@ ROUTES.saisie = async function (date) {
       a = null;
     }
   }
-  if (a && a.journee && !a.journee.modifiable) { toast('Journée déjà validée.'); return aller('/accueil'); }
+  if (a && a.journee && !a.journee.modifiable) { toast('Journée déjà validée.'); return aller(accueilPerso()); }
   const absence = a && !a.journee && (a.justification || ((a.semaine || []).find(x => x.date === date) || {}).justification);
-  if (absence) { toast(messageAbsence(absence)); return aller('/accueil'); }
+  if (absence) { toast(messageAbsence(absence)); return aller(accueilPerso()); }
 
   const e = etatInitial(date, a && a.journee, a && a.bloc);
   const dessiner = () => {
@@ -970,7 +981,7 @@ function memoriserJournee(date, e, r) {
 
 ROUTES.envoye = function () {
   const d = stock.lire('dernierEnvoi');
-  if (!d) return aller('/accueil');
+  if (!d) return aller(accueilPerso());
   const e = d.etat;
   const [a, b, c, f] = [e.hEmbauche, e.hPause, e.hReprise, e.hDebauche].map(minutes);
   APP().innerHTML = `
@@ -989,7 +1000,7 @@ ROUTES.envoye = function () {
       <div class="resume"><span>Tâches avant chantier</span><span>${e.avecTaches ? esc(e.tachesSuppMin) + ' min' : 'Non'}</span></div>
       <div class="resume"><span>Repas</span><span>${esc({ AUCUN: 'Aucun', PANIER: 'Panier', RESTAURANT: 'Restaurant' }[e.repas])}</span></div>
     </section>
-    <div class="pied"><button class="btn btn-sombre" type="button" onclick="aller('/accueil')">Retour à ma semaine</button></div>`;
+    <div class="pied"><button class="btn btn-sombre" type="button" onclick="aller(accueilPerso())">Retour à ma semaine</button></div>`;
 };
 
 // ---------------------------------------------------------------------------
@@ -1116,7 +1127,8 @@ ROUTES.rapport = async function (param) {
         <button class="retour" type="button" aria-label="Retour" onclick="history.back()">${ICONES.retour}</button>
         <div><h1>Rapport de chantier</h1><p class="discret">${esc(dateLongue(date))}${auNomDe ? ` — au nom de ${esc(auNomDe)}` : ''}</p></div>
       </div>
-      ${envoye ? `<div class="alerte vert">${ICONES.ok}<span>Rapport envoyé. Tu peux le compléter et le renvoyer autant de fois que nécessaire.</span></div>`
+      ${d.verrouille ? `<div class="alerte jaune">${ICONES.attention}<span>Chantier passé en paie par le bureau : le rapport ne se modifie plus. Adresse-toi au bureau.</span></div>`
+        : envoye ? `<div class="alerte vert">${ICONES.ok}<span>Rapport envoyé. Tu peux le compléter et le renvoyer autant de fois que nécessaire.</span></div>`
         : `<div class="alerte jaune">${ICONES.attention}<span>Rapport pas encore envoyé. Le bouton en bas l'envoie, même s'il n'y a que les repas.</span></div>`}
 
       <section class="bloc">
@@ -1135,7 +1147,7 @@ ROUTES.rapport = async function (param) {
         : '<section class="bloc"><p class="discret">Aucun chantier au planning pour cette journée.</p></section>'}
 
       <p class="erreur-champ" id="erreur" role="alert"></p>
-      <div class="pied"><button class="btn btn-principal" type="button" id="envoyer">${envoye ? 'Renvoyer le rapport' : 'Envoyer le rapport'}</button></div>`;
+      ${d.verrouille ? '' : `<div class="pied"><button class="btn btn-principal" type="button" id="envoyer">${envoye ? 'Renvoyer le rapport' : 'Envoyer le rapport'}</button></div>`}`;
 
     $('#resto').oninput = ev => { e.restaurant = ev.target.value; };
     $('#moins').onclick = () => { e.repasPayes = Math.max(0, e.repasPayes - 1); $('#nbRepas').textContent = e.repasPayes; };
@@ -1201,7 +1213,12 @@ ROUTES.rapport = async function (param) {
       }
       redessiner();
     });
-    $('#envoyer').onclick = soumettre;
+    if ($('#envoyer')) $('#envoyer').onclick = soumettre;
+    // Lecture seule : on garde les onglets des chantiers et le retour, tout le reste est grisé.
+    if (d.verrouille) {
+      $$('#app input, #app select, #app textarea, #app button:not([data-onglet]):not(.retour)').forEach(x => { x.disabled = true; });
+      $$('#app .prendre, #app .btn-ajout, #app .suppr').forEach(x => { x.hidden = true; });
+    }
     window.scrollTo(0, y);
   };
 
@@ -1226,7 +1243,7 @@ ROUTES.rapport = async function (param) {
       if (!r.enAttente) majChef(date, { rapportEnvoye: true });
       oublierJour(date);
       toast(r.enAttente ? 'Rapport gardé, il partira avec le réseau.' : 'Rapport envoyé.');
-      aller(auNomDe ? apresCorrectionBureau(date) : '/accueil');
+      aller(auNomDe ? apresCorrectionBureau(date) : accueilPerso());
     } catch (err) {
       bouton.disabled = false; bouton.textContent = 'Envoyer le rapport';
       $('#erreur').textContent = err.message;
@@ -1269,7 +1286,7 @@ ROUTES.equipe = async function (date) {
     const bureau = j.parBureau ? `<p class="alerte jaune mini">${ICONES.attention}<span>${m.estMoi ? 'Ta journée a été validée ou modifiée' : 'Validée ou modifiée'} par le bureau : pour toute modification, adresse-toi au bureau.</span></p>` : '';
     return `
       <section class="bloc" ${aValider ? 'style="border:2px solid var(--jaune)"' : ''}>
-        <div class="ligne-tete"><span>${esc(m.personne)}${m.estMoi ? ' <span class="discret">(chef)</span>' : ''}${m.interimaire ? ' <span class="discret">(intérim)</span>' : ''}</span>
+        <div class="ligne-tete"><span>${esc(m.personne)}${m.estMoi ? ' <span class="discret">(chef)</span>' : ''}${m.interimaire ? ' <span class="discret">(intérim)</span>' : ''}${m.origine ? ` <span class="discret">(${esc(m.origine)})</span>` : ''}</span>
           <span class="pastille ${pastille[1]}">${esc(pastille[0])}</span></div>
         <p>${esc(j.hEmbauche)}–${esc(j.hPause)} · ${esc(j.hReprise)}–${esc(j.hDebauche)} · <b>${esc(j.total)}</b></p>
         <p class="discret">${esc([j.trajet, j.tachesSuppMin ? `${j.tachesSuppMin} min ${j.tachesSupp}` : '', { AUCUN: 'Pas de repas', PANIER: 'Panier', RESTAURANT: 'Restaurant' }[j.repas]].filter(Boolean).join(' — '))}</p>
@@ -1291,16 +1308,21 @@ ROUTES.equipe = async function (date) {
     const aValider = d.membres.filter(m => m.journee && aValiderStatut(m.journee.statut));
     APP().innerHTML = `
       <div class="entete">
-        <button class="retour" type="button" aria-label="Retour" onclick="aller('/accueil')">${ICONES.retour}</button>
+        <button class="retour" type="button" aria-label="Retour" onclick="aller(accueilPerso())">${ICONES.retour}</button>
         <div><h1>Valider mon équipe</h1><p class="discret">${esc(libellesChantiers(d.bloc).map(nomCourt).join(' + '))} — ${esc(dateLongue(date))}</p></div>
       </div>
+      ${d.chefDeFait ? `<div class="alerte jaune">${ICONES.attention}<span>Chef de fait : personne n'était prévu sur ces chantiers. Ta propre journée est validée par le bureau.</span></div>` : ''}
       ${d.membres.map(carte).join('')}
+      ${(d.partis || []).map(x => `<section class="bloc"><div class="ligne-tete"><span>${esc(x.personne)}</span><span class="pastille">Parti</span></div>
+        <p class="discret">Prévu avec toi ce matin, il a travaillé avec l'équipe de ${esc(x.chez)} : c'est ce chef qui valide sa journée.</p></section>`).join('')}
       ${d.repas.payes === null ? `<div class="alerte jaune">${ICONES.attention}<span>Rapport de chantier pas encore envoyé : les repas ne peuvent pas être contrôlés.</span></div>`
         : d.repas.ecart ? `<div class="alerte rouge">${ICONES.attention}<span><b>Repas :</b> ${d.repas.payes} payés au rapport, ${d.repas.equipe} déclarés par l'équipe.</span></div>`
         : `<div class="alerte vert">${ICONES.ok}<span>Repas : ${d.repas.payes} payés, ${d.repas.equipe} déclarés. Ça correspond.</span></div>`}
       <p class="erreur-champ" id="erreur" role="alert"></p>
       <div class="pied">
-        <button class="btn btn-ajout" type="button" onclick="aller('/interimaire/${date}')">${ICONES.plus} Ajouter un intérimaire</button>
+        ${d.enPaie ? `<div class="alerte jaune">${ICONES.attention}<span>Chantier passé en paie par le bureau : plus d'ajout d'intérimaire ni de modification du rapport. Adresse-toi au bureau.</span></div>`
+          : `<div class="duo"><button class="btn btn-ajout btn-petit" type="button" onclick="aller('/chef-ajout/${date}')" ${(d.disponibles || []).length ? '' : 'disabled'}>${ICONES.plus} Ajouter un gars</button>
+            <button class="btn btn-ajout btn-petit" type="button" onclick="aller('/interimaire/${date}')">${ICONES.plus} Ajouter un intérimaire</button></div>`}
         <button class="btn btn-vert" type="button" id="toutValider" ${aValider.length ? '' : 'disabled'}>${aValider.length ? `Tout valider (${aValider.length})` : 'Rien à valider'}</button>
       </div>`;
 
@@ -1337,10 +1359,36 @@ ROUTES.equipe = async function (date) {
 // Écran : le chef corrige la journée d'un gars de son équipe (après l'avoir dévalidée)
 // ---------------------------------------------------------------------------
 
+/** « Ajouter un gars » : le chef choisit quelqu'un qui n'a rien saisi aujourd'hui, puis saisit sa journée. */
+ROUTES['chef-ajout'] = async function (date) {
+  date = /^\d{4}-\d{2}-\d{2}$/.test(date || '') ? date : aujourdhui();
+  const toujoursIci = ecranCourant();
+  chargement();
+  let d;
+  try { d = await appel('equipe', { date }); } catch (err) { if (toujoursIci()) erreurEcran(err); return; }
+  if (!toujoursIci()) return;
+  APP().innerHTML = `
+    <div class="entete">
+      <button class="retour" type="button" aria-label="Retour" onclick="history.back()">${ICONES.retour}</button>
+      <div><h1>Ajouter un gars</h1><p class="discret">${esc(dateLongue(date))}</p></div>
+    </div>
+    <section class="bloc">
+      <div class="champ"><label for="qui">Qui a travaillé avec toi ?</label>
+        <select id="qui"><option value="">Choisir…</option>
+          ${(d.disponibles || []).map(n => `<option value="${esc(n)}">${esc(n)}</option>`).join('')}
+        </select></div>
+      <p class="discret">Seuls ceux qui n'ont encore rien saisi aujourd'hui sont proposés. Tu saisis sa journée, sur tes chantiers, et elle est validée à ton nom.</p>
+    </section>
+    <div class="pied"><button class="btn btn-principal" type="button" id="continuer" disabled>Continuer vers sa journée</button></div>`;
+  $('#qui').onchange = () => { $('#continuer').disabled = !$('#qui').value; };
+  $('#continuer').onclick = () => aller(`/chef-journee/${date}/${encodeURIComponent($('#qui').value)}/ajout`);
+};
+
 ROUTES['chef-journee'] = async function (param) {
   const toujoursIci = ecranCourant();
-  const [date, personneEncodee] = String(param || '').split('/');
+  const [date, personneEncodee, mode] = String(param || '').split('/');
   const personne = decodeURIComponent(personneEncodee || '');
+  const ajout = mode === 'ajout';        // « Ajouter un gars » : il rejoint l'équipe, sur les chantiers du chef
   chargement();
   let ref, d;
   try {
@@ -1349,7 +1397,7 @@ ROUTES['chef-journee'] = async function (param) {
   } catch (err) { if (toujoursIci()) erreurEcran(err, 'La correction a besoin du réseau.'); return; }
   if (!toujoursIci()) return;
 
-  const m = d.membres.find(x => x.personne === personne);
+  const m = ajout ? { personne, journee: null } : d.membres.find(x => x.personne === personne);
   if (m && m.interimaire) return aller(`/interimaire/${date}/-/${encodeURIComponent(personne)}`);
   if (!m) { toast(`${personne} n'est pas dans ton équipe ce jour-là.`); return aller('/equipe/' + date); }
   // Pas de journée reçue : le chef la saisit à la place du gars, avec les chantiers et horaires habituels du jour.
@@ -1358,6 +1406,8 @@ ROUTES['chef-journee'] = async function (param) {
     toast("Journée validée : dévalide-la d'abord pour la corriger."); return aller('/equipe/' + date);
   }
   const e = etatInitial(date, m.journee, d.bloc);
+  const possibles = libellesChantiers(d.bloc);
+  if (ajout) { e.chantiers = possibles.length === 1 ? [possibles[0]] : []; e.lieuEmbauche = e.chantiers[0] || ''; }
   const idEnvoi = uuid();          // un enregistrement relancé après une coupure n'est pas compté deux fois
 
   const dessiner = () => {
@@ -1365,10 +1415,10 @@ ROUTES['chef-journee'] = async function (param) {
     APP().innerHTML = `
       <div class="entete">
         <button class="retour" type="button" aria-label="Retour" onclick="aller('/equipe/${date}')">${ICONES.retour}</button>
-        <div><h1>${esc(personne)}</h1><p class="discret">${esc(dateLongue(date))} — ${nouvelle ? 'saisie' : 'correction'} par le chef</p></div>
+        <div><h1>${esc(personne)}</h1><p class="discret">${esc(dateLongue(date))} — ${ajout ? 'ajouté à ton équipe' : nouvelle ? 'saisie' : 'correction'} par le chef</p></div>
       </div>
-      <div class="alerte jaune">${ICONES.attention}<span>Une fois enregistrée, la journée est validée à ton nom.</span></div>
-      ${formulaireJournee(e, ref, false)}
+      <div class="alerte jaune">${ICONES.attention}<span>Une fois enregistrée, la journée est validée à ton nom${ajout ? ' et il rejoint ton équipe pour la journée' : ''}.</span></div>
+      ${formulaireJournee(e, ref, false, ajout ? { chantiersPossibles: possibles } : {})}
       <div class="pied"><button class="btn btn-principal" type="button" id="envoyer">Enregistrer et valider</button></div>`;
     brancherFormulaire(e, dessiner);
     $('#envoyer').onclick = async () => {
@@ -1376,9 +1426,9 @@ ROUTES['chef-journee'] = async function (param) {
       if (probleme) { $('#erreur').textContent = probleme; $('#erreur').scrollIntoView({ block: 'center' }); return; }
       const b = $('#envoyer'); b.disabled = true; b.textContent = 'Enregistrement…';
       try {
-        await appel('chef_journee', Object.assign({ personne }, donneesJournee(e)), idEnvoi);
+        await appel('chef_journee', Object.assign({ personne }, donneesJournee(e), ajout ? { ajout: true } : {}), idEnvoi);
         oublierJour(date);
-        toast(nouvelle ? 'Journée saisie et validée.' : 'Journée corrigée et validée.');
+        toast(ajout ? `${personne} ajouté à ton équipe.` : nouvelle ? 'Journée saisie et validée.' : 'Journée corrigée et validée.');
         aller('/equipe/' + date);
       } catch (err) {
         b.disabled = false; b.textContent = 'Enregistrer et valider';
@@ -1525,8 +1575,23 @@ ROUTES.bureau = async function (date) {
   const ctl = d.controles;
   const pointsDe = nom => ctl.duJour.filter(c => c.personne === nom)
     .map(c => `<p class="point-controle ${c.cat}">${c.cat === 'corriger' ? '⚠' : '•'} ${esc(c.titre.split(' — ')[0])}</p>`).join('');
-  const carte = x => {
+  let justifOuvert = null;             // personne dont le formulaire « Justifier » est déplié
+  const carte = (x, c) => {
     const j = x.journee;
+    if (!j && !x.justification && justifOuvert === x.personne) {
+      const autres = c ? c.journees.filter(y => !y.journee && !y.justification && y.personne !== x.personne) : [];
+      const avecRapport = c && !c.rapport.envoye;
+      return `
+      <div class="ligne ctl verifier">
+        <div class="ligne-tete"><span>${esc(x.personne)}</span><span class="pastille rouge">Pas saisie</span></div>
+        <div class="choix" style="--n:2">${d.motifs.map(m => `<button type="button" data-motif="${esc(m)}">${esc(m)}</button>`).join('')}</div>
+        <input type="text" id="commentaire" placeholder="Commentaire (facultatif)" maxlength="300">
+        ${autres.length || avecRapport ? `<label class="case"><input type="checkbox" id="toutChantier">
+          Tout le chantier : ${[autres.length ? `${autres.length} autre${autres.length > 1 ? 's' : ''} sans saisie` : '', avecRapport ? 'le rapport' : ''].filter(Boolean).join(' et ')}</label>` : ''}
+        <div class="duo"><button class="btn btn-clair btn-petit" type="button" data-fermer-justif>Annuler</button>
+          <button class="btn btn-principal btn-petit" type="button" data-enregistrer-justif="${esc(x.personne)}" data-chef="${esc(c ? c.responsable : '')}" disabled>Enregistrer</button></div>
+      </div>`;
+    }
     if (!j && x.justification) return `
       <div class="ligne">
         <div class="ligne-tete"><span>${esc(x.personne)}</span><span class="pastille">Justifiée</span></div>
@@ -1549,7 +1614,7 @@ ROUTES.bureau = async function (date) {
         ${x.exportee ? '<p class="discret">Déjà envoyée au Suivi RH.</p>' : `
           <div class="duo">
             <button class="btn btn-clair btn-petit" type="button" ${x.interimaire ? `data-modifier-interim="${esc(x.personne)}" data-chef="${esc(x.responsable || '')}"` : `data-modifier="${esc(x.personne)}"`}>${j ? 'Corriger' : 'Saisir'}</button>
-            ${!j ? ''
+            ${!j ? `<button class="btn btn-clair btn-petit" type="button" data-justifier="${esc(x.personne)}">Justifier…</button>`
               : (j.statut === 'SAISIE' || j.statut === 'SIGNALEE')
                 ? `<button class="btn btn-vert btn-petit" type="button" data-valider-chef="${esc(x.personne)}">Valider</button>`
                 : `<button class="btn btn-petit ${x.valideBureau ? 'btn-clair' : 'btn-principal'}" type="button" data-bureau="${esc(x.personne)}" data-valeur="${x.valideBureau ? 'non' : 'oui'}">${x.valideBureau ? 'Retirer de l\'envoi' : 'Bon pour la paie'}</button>`}
@@ -1569,13 +1634,13 @@ ROUTES.bureau = async function (date) {
       <section class="bloc">
         <div class="bloc-titre">${esc(c.villes.map(nomCourt).join(' + '))}</div>
         <div class="ligne-tete">
-          <span class="discret">Chef : ${esc(c.responsable || '—')}</span>
+          <span class="discret">Chef : ${esc(c.responsable || '—')}${c.deFait ? ' (chef de fait)' : ''}</span>
           <span class="pastille ${c.rapport.envoye ? 'vert' : 'rouge'}">Rapport ${c.rapport.envoye ? 'envoyé' : 'manquant'}</span>
         </div>
         <p class="discret">${c.journees.length} personne${c.journees.length > 1 ? 's' : ''}${manquantes ? ` · ${manquantes} sans saisie` : ''}${aValider ? ` · ${aValider} à valider` : ''}${aCorriger(c) ? ` · <b class="rouge">${aCorriger(c)} à corriger</b>` : ''}</p>
         ${c.rapport.ecartRepas ? `<div class="alerte rouge">${ICONES.attention}<span><b>Repas :</b> ${esc(String(c.rapport.repasPayes))} payés au rapport, ${c.rapport.repasDeclares} déclarés par l'équipe.</span></div>`
           : (c.rapport.envoye ? `<p class="discret">Repas : ${esc(String(c.rapport.repasPayes))} payés, ${c.rapport.repasDeclares} déclarés.</p>` : '')}
-        ${c.journees.map(carte).join('')}
+        ${c.journees.map(x => carte(x, c)).join('')}
         <button class="btn btn-clair btn-petit" type="button" onclick="aller('/rapport/${date}/${encodeURIComponent(c.responsable || '')}')">
           ${c.rapport.envoye ? `Rapport : ${esc(c.rapport.restaurant || 'sans restaurant')}, ${esc(String(c.rapport.repasPayes))} repas, ${c.rapport.nbBl} BL` : 'Remplir le rapport'}</button>
         ${prets.length ? `<button class="btn btn-principal btn-petit" type="button" data-chantier="${esc(prets.join('|'))}">Tout le chantier bon pour la paie (${prets.length})</button>` : ''}
@@ -1586,8 +1651,9 @@ ROUTES.bureau = async function (date) {
   const dessiner = () => {
     APP().innerHTML = `
       <div class="entete">
-        <button class="retour" type="button" aria-label="Retour" onclick="aller('/accueil')">${ICONES.retour}</button>
+        <img class="embleme" src="embleme.png" alt="" aria-hidden="true">
         <div><h1>Écran bureau</h1><p class="discret">${esc(dateLongue(date))}</p></div>
+        <button class="icone-btn" type="button" aria-label="Se déconnecter" id="sortir">${ICONES.sortie}</button>
       </div>
 
       <div class="compteurs">
@@ -1611,7 +1677,11 @@ ROUTES.bureau = async function (date) {
         : '<section class="bloc"><p class="discret">Aucun chantier au planning ce jour-là.</p></section>'}
 
       ${d.horsChantier.length ? `<h2>Hors chantier</h2>${d.horsChantier.map(x => `<section class="bloc">${carte(x)}</section>`).join('')}` : ''}
-      <button class="btn btn-ajout" type="button" id="ajouter">${ICONES.plus} Saisir pour quelqu'un d'autre</button>
+      <div class="duo">
+        <button class="btn btn-ajout btn-petit" type="button" onclick="aller('/bureau-ajout/${date}')">${ICONES.plus} Saisir pour quelqu'un</button>
+        <button class="btn btn-ajout btn-petit" type="button" onclick="aller('/bureau-supprimer/${date}')">Effacer une journée saisie</button>
+      </div>
+      <button class="btn btn-clair btn-petit" type="button" onclick="aller('/ma-journee')">Ma journée</button>
 
       <div class="pied">
         <div class="alerte ${d.aImporter ? 'jaune' : 'vert'}">${d.aImporter ? ICONES.horloge : ICONES.ok}<span>
@@ -1619,6 +1689,7 @@ ROUTES.bureau = async function (date) {
             : 'Rien en attente d\'envoi dans le Suivi RH.'}
           ${d.bloqueesPaie ? `<br><b>${d.bloqueesPaie}</b> autre${d.bloqueesPaie > 1 ? 's' : ''} attend${d.bloqueesPaie > 1 ? 'ent' : ''} qu'un point à corriger soit réglé.` : ''}</span></div>
         <button class="btn ${d.aImporter ? 'btn-principal' : 'btn-sombre'}" type="button" id="importer" ${d.aImporter ? '' : 'disabled'}>Envoyer dans le Suivi RH</button>
+        <button type="button" class="version" onclick="aller('/diagnostic')">Version ${esc(VERSION_APPLI)}</button>
       </div>`;
 
     $$('[data-modifier]').forEach(b => b.onclick = () => aller(`/bureau-journee/${date}/${encodeURIComponent(b.dataset.modifier)}`));
@@ -1627,11 +1698,31 @@ ROUTES.bureau = async function (date) {
     $$('[data-valider-chef]').forEach(b => b.onclick = () => agir({ date, quoi: 'CHEF', personnes: [b.dataset.validerChef] }));
     $$('[data-bureau]').forEach(b => b.onclick = () => agir({ date, quoi: 'BUREAU', valeur: b.dataset.valeur === 'oui', personnes: [b.dataset.bureau] }));
     $$('[data-chantier]').forEach(b => b.onclick = () => agir({ date, quoi: 'BUREAU', valeur: true, personnes: b.dataset.chantier.split('|') }));
-    $('#ajouter').onclick = () => {
-      const nom = prompt('Nom de la personne, tel qu\'il apparaît au planning :\n\n' + d.personnesConnues.join(', '));
-      if (nom && d.personnesConnues.includes(nom.trim().toUpperCase())) aller(`/bureau-journee/${date}/${encodeURIComponent(nom.trim().toUpperCase())}`);
-      else if (nom) toast('Nom inconnu. Reprends-le exactement comme au planning.');
-    };
+    $('#sortir').onclick = () => { if (confirm('Se déconnecter de ce téléphone ?')) { stock.effacer('dernierNom'); deconnecter(); } };
+    $$('[data-justifier]').forEach(b => b.onclick = () => { justifOuvert = b.dataset.justifier; dessiner(); });
+    $$('[data-fermer-justif]').forEach(b => b.onclick = () => { justifOuvert = null; dessiner(); });
+    $$('[data-motif]').forEach(b => b.onclick = () => {
+      $$('[data-motif]').forEach(x => x.setAttribute('aria-pressed', x === b));
+      $('[data-enregistrer-justif]').disabled = false;
+    });
+    $$('[data-enregistrer-justif]').forEach(b => b.onclick = async () => {
+      const personne = b.dataset.enregistrerJustif, chef = b.dataset.chef;
+      const c = d.chantiers.find(x => x.responsable === chef);
+      const elements = [{ type: 'JOURNEE_MANQUANTE', cible: personne }];
+      if ($('#toutChantier') && $('#toutChantier').checked && c) {
+        c.journees.filter(y => !y.journee && !y.justification && y.personne !== personne).forEach(y => elements.push({ type: 'JOURNEE_MANQUANTE', cible: y.personne }));
+        if (!c.rapport.envoye) elements.push({ type: 'RAPPORT_MANQUANT', cible: chef });
+      }
+      const motif = $('[data-motif][aria-pressed="true"]').dataset.motif;
+      $$('button').forEach(x => { x.disabled = true; });
+      try {
+        await appel('bureau_justifier', { date, elements, motif, commentaire: $('#commentaire').value });
+        justifOuvert = null;
+        d = await appel('bureau_jour', { date });
+        toast(elements.length > 1 ? `${elements.length} points justifiés.` : 'Justifié.');
+      } catch (err) { toast(err.message); }
+      if (toujoursIci()) dessiner();
+    });
     $('#importer').onclick = importer;
     brancherBande($('#bande'), jourChoisi => aller('/bureau/' + jourChoisi));
     if ($('#aujourdhui')) $('#aujourdhui').onclick = () => aller('/bureau/' + aujourdhui());
@@ -1816,10 +1907,93 @@ ROUTES.controles = async function () {
   dessiner();
 };
 
+// ---------------------------------------------------------------------------
+// Écrans : le bureau ajoute quelqu'un dans une équipe, ou supprime une journée saisie par erreur
+// ---------------------------------------------------------------------------
+
+ROUTES['bureau-ajout'] = async function (date) {
+  date = /^\d{4}-\d{2}-\d{2}$/.test(date || '') ? date : aujourdhui();
+  const toujoursIci = ecranCourant();
+  chargement();
+  let d;
+  try { d = await appel('bureau_jour', { date }); } catch (err) { if (toujoursIci()) erreurEcran(err); return; }
+  if (!toujoursIci()) return;
+  const saisis = new Set([...d.chantiers.flatMap(c => c.journees), ...d.horsChantier].filter(x => x.journee).map(x => x.personne));
+  APP().innerHTML = `
+    <div class="entete">
+      <button class="retour" type="button" aria-label="Retour" onclick="history.back()">${ICONES.retour}</button>
+      <div><h1>Saisir pour quelqu'un</h1><p class="discret">${esc(dateLongue(date))}</p></div>
+    </div>
+    <section class="bloc">
+      <div class="champ"><label for="qui">Qui ?</label>
+        <select id="qui"><option value="">Choisir…</option>
+          ${d.personnesConnues.map(n => `<option value="${esc(n)}" ${saisis.has(n) ? 'disabled' : ''}>${esc(n)}${saisis.has(n) ? ' — déjà saisie' : ''}</option>`).join('')}
+        </select></div>
+      <div class="champ"><label for="chef">Dans l'équipe de</label>
+        <select id="chef"><option value="">Choisir…</option>
+          ${d.chantiers.filter(c => c.responsable).map(c => `<option value="${esc(c.responsable)}">${esc(c.responsable)} — ${esc(c.villes.map(nomCourt).join(' + '))}</option>`).join('')}
+          <option value="-">Aucune équipe (hors chantier)</option>
+        </select></div>
+      <p class="discret">Ses chantiers et ses repas compteront avec ceux de ce chef. Une personne déjà saisie se corrige depuis l'écran bureau.</p>
+    </section>
+    <p class="erreur-champ" id="erreur" role="alert"></p>
+    <div class="pied"><button class="btn btn-principal" type="button" id="continuer" disabled>Continuer vers sa journée</button></div>`;
+  const maj = () => { $('#continuer').disabled = !($('#qui').value && $('#chef').value); };
+  $('#qui').onchange = maj; $('#chef').onchange = maj;
+  $('#continuer').onclick = () => aller(`/bureau-journee/${date}/${encodeURIComponent($('#qui').value)}/${encodeURIComponent($('#chef').value)}`);
+};
+
+ROUTES['bureau-supprimer'] = async function (date) {
+  date = /^\d{4}-\d{2}-\d{2}$/.test(date || '') ? date : aujourdhui();
+  const toujoursIci = ecranCourant();
+  chargement();
+  let d;
+  try { d = await appel('bureau_jour', { date }); } catch (err) { if (toujoursIci()) erreurEcran(err); return; }
+  if (!toujoursIci()) return;
+  // Les chefs du jour et les journées déjà envoyées au Suivi RH ne se suppriment pas.
+  const lignes = [...d.chantiers.flatMap(c => c.journees.map(x => ({ ...x, equipe: c.responsable }))), ...d.horsChantier.map(x => ({ ...x, equipe: '' }))]
+    .filter(x => x.journee && !x.estChef && !x.exportee);
+  let choisi = null, confirmer = false;
+  const dessiner = () => {
+    const x = lignes.find(y => y.personne === choisi);
+    APP().innerHTML = `
+      <div class="entete">
+        <button class="retour" type="button" aria-label="Retour" onclick="history.back()">${ICONES.retour}</button>
+        <div><h1>Effacer une journée saisie</h1><p class="discret">${esc(dateLongue(date))}</p></div>
+      </div>
+      ${lignes.length ? `<section class="bloc"><p class="discret">Remet la journée à zéro : saisie par erreur, mauvaise équipe, doublon. Pour quelqu'un qui ne devait pas être au planning, efface d'abord sa saisie, puis justifie « Retiré du planning ». Les journées des chefs ne s'effacent pas.</p>
+        <div class="coches">${lignes.map(y => `<label class="case"><input type="radio" name="qui" value="${esc(y.personne)}" ${y.personne === choisi ? 'checked' : ''}>
+          ${esc(y.personne)} <span class="discret">— ${esc(y.journee.hEmbauche)}–${esc(y.journee.hDebauche)}${y.equipe ? `, équipe de ${esc(y.equipe)}` : ', hors équipe'}</span></label>`).join('')}</div></section>`
+        : '<section class="bloc"><p class="discret">Aucune journée à effacer ce jour-là.</p></section>'}
+      ${x && confirmer ? `<div class="alerte rouge">${ICONES.attention}<span>Effacer définitivement la saisie de <b>${esc(x.personne)}</b> du ${esc(dateLongue(date).toLowerCase())} ?
+        ${x.auPlanning ? ' Il est au planning : sa journée redevient attendue. Il pourra la ressaisir, ou tu pourras la justifier (« Retiré du planning »).' : ''}</span></div>` : ''}
+      <div class="pied">
+        ${x && confirmer ? `<div class="duo"><button class="btn btn-clair" type="button" id="annuler">Annuler</button>
+          <button class="btn btn-rouge" type="button" id="confirmer">Confirmer l'effacement</button></div>`
+          : `<button class="btn btn-rouge" type="button" id="supprimer" ${x ? '' : 'disabled'}>${x ? `Effacer la journée de ${esc(x.personne)}` : 'Choisir une personne'}</button>`}
+      </div>`;
+    $$('input[name="qui"]').forEach(r => r.onchange = () => { choisi = r.value; confirmer = false; dessiner(); });
+    if ($('#supprimer')) $('#supprimer').onclick = () => { confirmer = true; dessiner(); };
+    if ($('#annuler')) $('#annuler').onclick = () => { confirmer = false; dessiner(); };
+    if ($('#confirmer')) $('#confirmer').onclick = async () => {
+      $$('button').forEach(b => { b.disabled = true; });
+      try {
+        await appel('bureau_supprimer', { date, personne: choisi });
+        oublierJour(date);
+        toast(`Journée de ${choisi} effacée.`);
+        aller('/bureau/' + date);
+      } catch (err) { toast(err.message); confirmer = false; dessiner(); }
+    };
+  };
+  dessiner();
+};
+
 ROUTES['bureau-journee'] = async function (param) {
   const toujoursIci = ecranCourant();
-  const [date, personneEncodee] = String(param || '').split('/');
+  const [date, personneEncodee, chefEncode] = String(param || '').split('/');
   const personne = decodeURIComponent(personneEncodee || '');
+  // Ajout par « Saisir pour quelqu'un » : l'équipe choisie ('-' = aucune) ; absent pour une correction.
+  const chefChoisi = chefEncode === undefined ? undefined : (chefEncode === '-' ? '' : decodeURIComponent(chefEncode));
   chargement();
   let ref, d;
   try {
@@ -1830,7 +2004,8 @@ ROUTES['bureau-journee'] = async function (param) {
 
   const toutes = [...d.chantiers.flatMap(c => c.journees), ...d.horsChantier];
   const ligne = toutes.find(x => x.personne === personne);
-  const chantier = d.chantiers.find(c => c.journees.some(x => x.personne === personne));
+  const chantier = chefChoisi !== undefined ? d.chantiers.find(c => c.responsable === chefChoisi)
+    : d.chantiers.find(c => c.journees.some(x => x.personne === personne));
   const e = etatInitial(date, ligne && ligne.journee, chantier ? { lieux: chantier.villes } : null);
 
   const dessiner = () => {
@@ -1838,7 +2013,7 @@ ROUTES['bureau-journee'] = async function (param) {
     APP().innerHTML = `
       <div class="entete">
         <button class="retour" type="button" aria-label="Retour" onclick="history.back()">${ICONES.retour}</button>
-        <div><h1>${esc(personne)}</h1><p class="discret">${esc(dateLongue(date))} — saisie par le bureau</p></div>
+        <div><h1>${esc(personne)}</h1><p class="discret">${esc(dateLongue(date))} — saisie par le bureau${chefChoisi ? `, équipe de ${esc(chefChoisi)}` : chefChoisi === '' ? ', hors équipe' : ''}</p></div>
       </div>
       <div class="alerte jaune">${ICONES.attention}<span>Cette journée sera marquée « validée » d'office, au nom du bureau.</span></div>
       ${formulaireJournee(e, ref, false)}
@@ -1849,7 +2024,7 @@ ROUTES['bureau-journee'] = async function (param) {
       if (probleme) { $('#erreur').textContent = probleme; return; }
       const b = $('#envoyer'); b.disabled = true; b.textContent = 'Enregistrement…';
       try {
-        await appel('bureau_journee', Object.assign({ personne }, donneesJournee(e)));
+        await appel('bureau_journee', Object.assign({ personne }, donneesJournee(e), chefChoisi !== undefined ? { chef: chefChoisi } : {}));
         oublierJour(date);
         toast('Journée enregistrée.');
         aller(apresCorrectionBureau(date));
