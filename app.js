@@ -12,7 +12,7 @@
  * Numéro affiché en bas de l'accueil et de l'écran de connexion.
  * À augmenter à chaque dépôt de nouveaux fichiers sur GitHub : c'est le seul numéro à changer.
  */
-const VERSION_APPLI = '28';
+const VERSION_APPLI = '29';
 
 // ---------------------------------------------------------------------------
 // Petits outils
@@ -589,8 +589,18 @@ function dessinerAccueil(a, session) {
 // Formulaire de journée (partagé par la saisie et l'ajout d'intérimaire)
 // ---------------------------------------------------------------------------
 
-/** Horaires les plus courants : proposés par défaut, toujours modifiables. */
-const HORAIRES_HABITUELS = { hEmbauche: '08:00', hPause: '12:00', hReprise: '13:30', hDebauche: '17:30' };
+/**
+ * Réglages venus de l'onglet PARAMETRES (par le serveur, avec les référentiels) : horaires proposés
+ * par défaut, durée maximale d'une journée et des tâches avant chantier. Valeurs de secours sinon.
+ */
+function reglages() {
+  const p = (stock.lire('ref') || {}).parametres || {};
+  return {
+    horaires: p.horaires || { hEmbauche: '08:00', hPause: '12:00', hReprise: '13:30', hDebauche: '17:30' },
+    journeeMaxMin: p.journeeMaxMin || 12 * 60,
+    tachesAvantMaxMin: p.tachesAvantMaxMin || 240,
+  };
+}
 
 function etatInitial(date, journee, bloc) {
   const j = journee || {};
@@ -608,10 +618,10 @@ function etatInitial(date, journee, bloc) {
       });
       return p;
     })(),
-    hEmbauche: j.hEmbauche || HORAIRES_HABITUELS.hEmbauche,
-    hPause: j.hPause || HORAIRES_HABITUELS.hPause,
-    hReprise: j.hReprise || HORAIRES_HABITUELS.hReprise,
-    hDebauche: j.hDebauche || HORAIRES_HABITUELS.hDebauche,
+    hEmbauche: j.hEmbauche || reglages().horaires.hEmbauche,
+    hPause: j.hPause || reglages().horaires.hPause,
+    hReprise: j.hReprise || reglages().horaires.hReprise,
+    hDebauche: j.hDebauche || reglages().horaires.hDebauche,
     trajet: j.trajet || '',
     avecTaches: j.tachesSuppMin ? true : (journee ? false : null),
     tachesSupp: j.tachesSupp || '', tachesSuppMin: j.tachesSuppMin || '',
@@ -738,7 +748,7 @@ function formulaireJournee(e, ref, interimaire) {
           <input id="tachesSupp" type="text" value="${esc(e.tachesSupp)}" data-champ="tachesSupp" placeholder="Ex. chargement GNT 18 t"></div>
         <div class="champ"><span class="sous">Combien de temps ?</span>
           ${choix('tachesSuppMin', [...durees.map(d => [d, d + ' min']), ['autre', 'Autre']], autreDuree ? 'autre' : e.tachesSuppMin, 4)}
-          ${autreDuree || e.tachesSuppMin === 'autre' ? `<input type="number" inputmode="numeric" min="1" max="240" aria-label="Durée en minutes" placeholder="Minutes" value="${autreDuree ? esc(e.tachesSuppMin) : ''}" data-champ="tachesSuppMinAutre">` : ''}
+          ${autreDuree || e.tachesSuppMin === 'autre' ? `<input type="number" inputmode="numeric" min="1" max="${reglages().tachesAvantMaxMin}" aria-label="Durée en minutes" placeholder="Minutes" value="${autreDuree ? esc(e.tachesSuppMin) : ''}" data-champ="tachesSuppMinAutre">` : ''}
         </div>` : ''}
     </section>
 
@@ -800,13 +810,14 @@ function controler(e, interimaire) {
   if (h.some(x => x === null)) return 'Remplis les quatre horaires.';
   const [a, b, c, d] = h;
   if (!(a < b && b <= c && c < d)) return 'Les horaires doivent se suivre : embauche, pause, reprise, débauche.';
-  if ((b - a) + (d - c) > 12 * 60) return 'Plus de 12 heures dans la journée : vérifie les horaires.';
+  const max = reglages().journeeMaxMin;
+  if ((b - a) + (d - c) > max) return `Plus de ${String(max / 60).replace('.', ',')} heures dans la journée : vérifie les horaires.`;
   if (!e.trajet) return 'Choisis le trajet.';
   if (e.avecTaches === null) return 'Indique si tu as fait des tâches avant le chantier.';
   if (e.avecTaches) {
     if (!e.tachesSupp.trim()) return 'Décris la tâche avant chantier.';
     const m = Number(e.tachesSuppMin);
-    if (!(m > 0 && m <= 240)) return 'Indique la durée de la tâche (en minutes).';
+    if (!(m > 0 && m <= reglages().tachesAvantMaxMin)) return `Indique la durée de la tâche (en minutes, ${reglages().tachesAvantMaxMin} au plus).`;
   }
   if (!e.repas) return 'Choisis le repas du midi.';
   if (e.chantiers.length > 1) {
@@ -1574,6 +1585,18 @@ ROUTES.controles = async function () {
   let filtre = stock.lire('filtreControles', 'corriger');
   let ouvert = null;                       // contrôle dont le formulaire « Justifier » est déplié
 
+  // Le même chantier le même jour : journées manquantes de l'équipe et rapport manquant de son chef.
+  const voisins = c => {
+    const chef = c.type === 'RAPPORT_MANQUANT' ? c.cible : c.responsable;
+    if (!chef || !['JOURNEE_MANQUANTE', 'RAPPORT_MANQUANT'].includes(c.type)) return [c];
+    return d.controles.filter(x => x.date === c.date && !x.justification
+      && ((x.type === 'JOURNEE_MANQUANTE' && x.responsable === chef) || (x.type === 'RAPPORT_MANQUANT' && x.cible === chef)));
+  };
+  const decrireVoisins = v => {
+    const n = v.filter(x => x.type === 'JOURNEE_MANQUANTE').length;
+    const r = v.some(x => x.type === 'RAPPORT_MANQUANT');
+    return [n ? `${n} journée${n > 1 ? 's' : ''} manquante${n > 1 ? 's' : ''}` : '', r ? 'le rapport' : ''].filter(Boolean).join(' et ');
+  };
   const dansFiltre = c => (filtre === 'justifies' ? !!c.justification : !c.justification && c.cat === filtre);
   const nombre = f => d.controles.filter(c => (f === 'justifies' ? !!c.justification : !c.justification && c.cat === f)).length;
   const BOUTONS = {
@@ -1593,22 +1616,24 @@ ROUTES.controles = async function () {
         <div class="a"><button class="btn btn-clair" type="button" data-act="rouvrir" data-id="${esc(c.id)}">Annuler la justification</button></div>`
       : ouvert === c.id ? `
         <div class="choix" style="--n:2">${d.motifs.map(m => `<button type="button" data-motif="${esc(m)}">${esc(m)}</button>`).join('')}</div>
+        ${voisins(c).length > 1 ? `<label class="case"><input type="checkbox" id="toutChantier">
+          Tout le chantier de ${esc(c.responsable || c.cible)} : ${decrireVoisins(voisins(c))}</label>` : ''}
         <input type="text" id="commentaire" placeholder="Commentaire (facultatif)" maxlength="300">
         <div class="a"><button class="btn btn-clair" type="button" data-act="fermer">Annuler</button>
           <button class="btn btn-principal" type="button" data-act="enregistrer-justif" data-id="${esc(c.id)}" disabled>Enregistrer</button></div>`
       : (c.actions && c.actions.length ? `<div class="a">${c.actions.map(a => BOUTONS[a](c)).join('')}</div>` : '')}
     </div>`;
 
-  // Intempéries : le planning était fait, personne n'a travaillé. Déclaré une fois pour tout le jour.
+  // Jour chômé (férié, pont) alors qu'un planning existe : déclaré une fois pour tout le jour.
   let jourOuvert = null;
   const enTeteJour = dt => {
     if (filtre === 'justifies' || !d.joursPlanning.includes(dt)) return '';
     if (!d.controles.some(c => c.date === dt && !c.justification && (c.type === 'JOURNEE_MANQUANTE' || c.type === 'RAPPORT_MANQUANT'))) return '';
-    if (jourOuvert !== dt) return `<button class="btn btn-ajout btn-petit" type="button" data-jour-nt="${dt}">Journée non travaillée (intempéries…)</button>`;
+    if (jourOuvert !== dt) return `<button class="btn btn-ajout btn-petit" type="button" data-jour-nt="${dt}">Jour chômé (férié, pont…)</button>`;
     return `<div class="ctl verifier">
-      <div class="t">Toute la journée non travaillée</div>
+      <div class="t">Jour chômé pour tout le monde</div>
       <div class="d">Efface les journées et rapports manquants de ce jour. Ceux qui ont travaillé saisissent leur journée normalement.</div>
-      <div class="choix" style="--n:2">${d.motifsJour.map(m => `<button type="button" data-motif="${esc(m)}">${esc(m)}</button>`).join('')}</div>
+      <div class="choix" style="--n:3">${d.motifsJour.map(m => `<button type="button" data-motif="${esc(m)}">${esc(m)}</button>`).join('')}</div>
       <input type="text" id="commentaire" placeholder="Commentaire (facultatif)" maxlength="300">
       <div class="a"><button class="btn btn-clair" type="button" data-act="fermer">Annuler</button>
         <button class="btn btn-principal" type="button" data-act="enregistrer-jour" data-date="${dt}" disabled>Enregistrer</button></div></div>`;
@@ -1638,7 +1663,7 @@ ROUTES.controles = async function () {
       try {
         await appel('bureau_justifier', { type: 'JOUR_NON_TRAVAILLE', date: b.dataset.date, cible: '', motif, commentaire: $('#commentaire').value });
         jourOuvert = null;
-        return recharger('Journée déclarée non travaillée.');
+        return recharger('Jour déclaré chômé.');
       } catch (err) { toast(err.message); dessiner(); }
     });
     $$('[data-act]:not([data-act="enregistrer-jour"])').forEach(b => b.onclick = () => agir(b.dataset.act, d.controles.find(c => c.id === b.dataset.id)));
@@ -1671,9 +1696,11 @@ ROUTES.controles = async function () {
       }
       if (act === 'enregistrer-justif') {
         const motif = ($('[data-motif][aria-pressed="true"]') || {}).dataset.motif;
-        await appel('bureau_justifier', { type, date, cible: reste.join('|'), motif, commentaire: $('#commentaire').value });
+        const tous = $('#toutChantier') && $('#toutChantier').checked ? voisins(c) : [c];
+        const elements = tous.map(x => ({ type: x.type, cible: x.cible }));
+        await appel('bureau_justifier', { date, elements, motif, commentaire: $('#commentaire').value });
         ouvert = null;
-        return recharger('Justifié.');
+        return recharger(tous.length > 1 ? `${tous.length} points justifiés.` : 'Justifié.');
       }
     } catch (err) {
       toast(err.message);

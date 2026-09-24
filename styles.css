@@ -261,3 +261,5 @@ button.compteur { cursor: pointer; }
 .ctl .d.aide { color: var(--encre); }
 .ctl .a { display: flex; gap: 8px; }
 .ctl .a .btn { min-height: 44px; font-size: 15px; padding: 0 10px; flex: 1; }
+.ctl .case { display: flex; gap: 10px; align-items: center; font-size: 15px; font-weight: 600; }
+.ctl .case input { width: 22px; height: 22px; flex-shrink: 0; accent-color: var(--encre); }
