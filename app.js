@@ -12,7 +12,7 @@
  * Numéro affiché en bas de l'accueil et de l'écran de connexion.
  * À augmenter à chaque dépôt de nouveaux fichiers sur GitHub : c'est le seul numéro à changer.
  */
-const VERSION_APPLI = '27';
+const VERSION_APPLI = '28';
 
 // ---------------------------------------------------------------------------
 // Petits outils
@@ -1498,7 +1498,7 @@ ROUTES.bureau = async function (date) {
       <div class="semaine-bureau">
         ${ctl.semaine.map(j => `<button type="button" data-jour-bureau="${j.date}" aria-current="${j.date === date}"
             class="${j.avenir ? 'avenir' : j.enCours ? 'en-cours' : j.corriger ? 'probleme' : 'ok'}">
-            <b>${esc(jourCourt(j.date))}</b>${j.avenir ? '—' : j.enCours ? 'en cours' : j.corriger ? `${j.corriger} ⚠` : '✓'}</button>`).join('')}
+            <b>${esc(jourCourt(j.date))}</b>${j.avenir ? '—' : j.enCours ? 'en cours' : j.corriger ? `${j.corriger} ⚠` : j.nonTravaille ? 'non trav.' : '✓'}</button>`).join('')}
       </div>
       ${ctl.compteurs.corriger + ctl.compteurs.verifier + ctl.compteurs.referentiel
         ? `<button class="btn btn-principal" type="button" onclick="aller('/controles')">Voir les ${ctl.compteurs.corriger + ctl.compteurs.verifier + ctl.compteurs.referentiel} contrôles</button>`
@@ -1589,7 +1589,7 @@ ROUTES.controles = async function () {
       <div class="t">${esc(c.titre)}</div>
       <div class="d">${esc(c.detail || '')}</div>
       ${c.aide ? `<div class="d aide">À faire : ${esc(c.aide)}</div>` : ''}
-      ${c.justification ? `<div class="d">Justifié : ${esc(c.justification)}</div>
+      ${c.justification ? `<div class="d">${c.type === 'JOUR_NON_TRAVAILLE' ? 'Déclarée' : 'Justifié'} : ${esc(c.justification)}</div>
         <div class="a"><button class="btn btn-clair" type="button" data-act="rouvrir" data-id="${esc(c.id)}">Annuler la justification</button></div>`
       : ouvert === c.id ? `
         <div class="choix" style="--n:2">${d.motifs.map(m => `<button type="button" data-motif="${esc(m)}">${esc(m)}</button>`).join('')}</div>
@@ -1598,6 +1598,21 @@ ROUTES.controles = async function () {
           <button class="btn btn-principal" type="button" data-act="enregistrer-justif" data-id="${esc(c.id)}" disabled>Enregistrer</button></div>`
       : (c.actions && c.actions.length ? `<div class="a">${c.actions.map(a => BOUTONS[a](c)).join('')}</div>` : '')}
     </div>`;
+
+  // Intempéries : le planning était fait, personne n'a travaillé. Déclaré une fois pour tout le jour.
+  let jourOuvert = null;
+  const enTeteJour = dt => {
+    if (filtre === 'justifies' || !d.joursPlanning.includes(dt)) return '';
+    if (!d.controles.some(c => c.date === dt && !c.justification && (c.type === 'JOURNEE_MANQUANTE' || c.type === 'RAPPORT_MANQUANT'))) return '';
+    if (jourOuvert !== dt) return `<button class="btn btn-ajout btn-petit" type="button" data-jour-nt="${dt}">Journée non travaillée (intempéries…)</button>`;
+    return `<div class="ctl verifier">
+      <div class="t">Toute la journée non travaillée</div>
+      <div class="d">Efface les journées et rapports manquants de ce jour. Ceux qui ont travaillé saisissent leur journée normalement.</div>
+      <div class="choix" style="--n:2">${d.motifsJour.map(m => `<button type="button" data-motif="${esc(m)}">${esc(m)}</button>`).join('')}</div>
+      <input type="text" id="commentaire" placeholder="Commentaire (facultatif)" maxlength="300">
+      <div class="a"><button class="btn btn-clair" type="button" data-act="fermer">Annuler</button>
+        <button class="btn btn-principal" type="button" data-act="enregistrer-jour" data-date="${dt}" disabled>Enregistrer</button></div></div>`;
+  };
 
   const dessiner = () => {
     const visibles = d.controles.filter(dansFiltre);
@@ -1609,14 +1624,24 @@ ROUTES.controles = async function () {
       </div>
       <div class="filtres">${CATEGORIES_CONTROLES.map(([k, lib]) => `<button type="button" data-cat="${k}" aria-pressed="${k === filtre}">${lib} ${nombre(k)}</button>`).join('')}</div>
       ${filtre === 'corriger' ? '<p class="discret">Ces points bloquent l\'envoi dans le Suivi RH des journées concernées.</p>' : ''}
-      ${dates.length ? dates.map(dt => `<p class="jour-titre">${esc(dateLongue(dt))}</p>${visibles.filter(c => c.date === dt).map(carte).join('')}`).join('')
+      ${dates.length ? dates.map(dt => `<p class="jour-titre">${esc(dateLongue(dt))}</p>${enTeteJour(dt)}${visibles.filter(c => c.date === dt).map(carte).join('')}`).join('')
         : `<div class="alerte vert">${ICONES.ok}<span>Rien dans cette catégorie.</span></div>`}`;
     $$('[data-cat]').forEach(b => b.onclick = () => { filtre = b.dataset.cat; ouvert = null; stock.ecrire('filtreControles', filtre); dessiner(); });
     $$('[data-motif]').forEach(b => b.onclick = () => {
       $$('[data-motif]').forEach(x => x.setAttribute('aria-pressed', x === b));
-      $('[data-act="enregistrer-justif"]').disabled = false;
+      $$('[data-act="enregistrer-justif"], [data-act="enregistrer-jour"]').forEach(x => { x.disabled = false; });
     });
-    $$('[data-act]').forEach(b => b.onclick = () => agir(b.dataset.act, d.controles.find(c => c.id === b.dataset.id)));
+    $$('[data-jour-nt]').forEach(b => b.onclick = () => { jourOuvert = b.dataset.jourNt; ouvert = null; dessiner(); });
+    $$('[data-act="enregistrer-jour"]').forEach(b => b.onclick = async () => {
+      const motif = ($('[data-motif][aria-pressed="true"]') || {}).dataset.motif;
+      $$('button').forEach(x => { x.disabled = true; });
+      try {
+        await appel('bureau_justifier', { type: 'JOUR_NON_TRAVAILLE', date: b.dataset.date, cible: '', motif, commentaire: $('#commentaire').value });
+        jourOuvert = null;
+        return recharger('Journée déclarée non travaillée.');
+      } catch (err) { toast(err.message); dessiner(); }
+    });
+    $$('[data-act]:not([data-act="enregistrer-jour"])').forEach(b => b.onclick = () => agir(b.dataset.act, d.controles.find(c => c.id === b.dataset.id)));
   };
 
   const recharger = async message => {
@@ -1625,8 +1650,8 @@ ROUTES.controles = async function () {
   };
 
   const agir = async (act, c) => {
-    if (act === 'fermer') { ouvert = null; return dessiner(); }
-    if (act === 'justifier') { ouvert = c.id; return dessiner(); }
+    if (act === 'fermer') { ouvert = null; jourOuvert = null; return dessiner(); }
+    if (act === 'justifier') { ouvert = c.id; jourOuvert = null; return dessiner(); }
     retourControles = true;
     if (act === 'saisir' || act === 'ouvrir') return aller(`/bureau-journee/${c.date}/${encodeURIComponent(c.personne)}`);
     if (act === 'rapport') return aller(`/rapport/${c.date}/${encodeURIComponent(c.responsable)}`);
