@@ -12,7 +12,7 @@
  * Numéro affiché en bas de l'accueil et de l'écran de connexion.
  * À augmenter à chaque dépôt de nouveaux fichiers sur GitHub : c'est le seul numéro à changer.
  */
-const VERSION_APPLI = '26';
+const VERSION_APPLI = '27';
 
 // ---------------------------------------------------------------------------
 // Petits outils
@@ -1193,7 +1193,7 @@ ROUTES.rapport = async function (param) {
       if (!r.enAttente) majChef(date, { rapportEnvoye: true });
       oublierJour(date);
       toast(r.enAttente ? 'Rapport gardé, il partira avec le réseau.' : 'Rapport envoyé.');
-      aller(auNomDe ? '/bureau/' + date : '/accueil');
+      aller(auNomDe ? apresCorrectionBureau(date) : '/accueil');
     } catch (err) {
       bouton.disabled = false; bouton.textContent = 'Envoyer le rapport';
       $('#erreur').textContent = err.message;
@@ -1401,7 +1401,19 @@ const ETIQUETTES = {
   VALIDEE_BUREAU: ['Validée bureau', 'vert'], EXPORTEE: ['Envoyée en paie', 'vert'],
 };
 
+/**
+ * Une correction ouverte depuis la liste des contrôles y ramène une fois enregistrée :
+ * le bureau enchaîne les points à corriger sans repasser par l'écran du jour.
+ */
+let retourControles = false;
+function apresCorrectionBureau(date) {
+  const vers = retourControles ? '/controles' : '/bureau/' + date;
+  retourControles = false;
+  return vers;
+}
+
 ROUTES.bureau = async function (date) {
+  retourControles = false;
   const toujoursIci = ecranCourant();
   date = /^\d{4}-\d{2}-\d{2}$/.test(date || '') ? date : aujourdhui();
   chargement();
@@ -1414,6 +1426,9 @@ ROUTES.bureau = async function (date) {
     return t.toISOString().slice(0, 10);
   };
 
+  const ctl = d.controles;
+  const pointsDe = nom => ctl.duJour.filter(c => c.personne === nom)
+    .map(c => `<p class="point-controle ${c.cat}">${c.cat === 'corriger' ? '⚠' : '•'} ${esc(c.titre.split(' — ')[0])}</p>`).join('');
   const carte = x => {
     const j = x.journee;
     const [lib, couleur] = j ? (ETIQUETTES[x.exportee ? 'EXPORTEE' : (x.valideBureau ? 'VALIDEE_BUREAU' : j.statut)] || [j.statut, ''])
@@ -1427,6 +1442,7 @@ ROUTES.bureau = async function (date) {
         ${j ? `<p>${esc(j.hEmbauche)}–${esc(j.hPause)} · ${esc(j.hReprise)}–${esc(j.hDebauche)} · <b>${esc(j.total)}</b>
                <span class="discret">— ${esc([j.trajet, { AUCUN: 'sans repas', PANIER: 'panier', RESTAURANT: 'restaurant' }[j.repas], j.zone ? 'zone ' + j.zone : 'pas de zone'].filter(Boolean).join(', '))}</span>
                ${j.repartition ? `<br><span class="discret">Heures : ${esc(j.repartition.split(' ; ').map(nomCourt).join(' ; '))}</span>` : ''}</p>` : ''}
+        ${pointsDe(x.personne)}
         ${x.exportee ? '<p class="discret">Déjà envoyée au Suivi RH.</p>' : `
           <div class="duo">
             <button class="btn btn-clair btn-petit" type="button" data-modifier="${esc(x.personne)}">${j ? 'Corriger' : 'Saisir'}</button>
@@ -1438,6 +1454,8 @@ ROUTES.bureau = async function (date) {
       </div>`;
   };
 
+  const aCorriger = c => ctl.duJour.filter(x => x.cat === 'corriger'
+    && (c.journees.some(j => j.personne === x.personne) || (!x.personne && x.responsable === c.responsable))).length;
   /** Un chantier entier : son rapport, son équipe, et le passage en paie de tout le monde d'un coup. */
   const carteChantier = c => {
     const prets = c.journees.filter(x => x.journee && !x.exportee && !x.valideBureau
@@ -1451,7 +1469,7 @@ ROUTES.bureau = async function (date) {
           <span class="discret">Chef : ${esc(c.responsable || '—')}</span>
           <span class="pastille ${c.rapport.envoye ? 'vert' : 'rouge'}">Rapport ${c.rapport.envoye ? 'envoyé' : 'manquant'}</span>
         </div>
-        <p class="discret">${c.journees.length} personne${c.journees.length > 1 ? 's' : ''}${manquantes ? ` · ${manquantes} sans saisie` : ''}${aValider ? ` · ${aValider} à valider` : ''}</p>
+        <p class="discret">${c.journees.length} personne${c.journees.length > 1 ? 's' : ''}${manquantes ? ` · ${manquantes} sans saisie` : ''}${aValider ? ` · ${aValider} à valider` : ''}${aCorriger(c) ? ` · <b class="rouge">${aCorriger(c)} à corriger</b>` : ''}</p>
         ${c.rapport.ecartRepas ? `<div class="alerte rouge">${ICONES.attention}<span><b>Repas :</b> ${esc(String(c.rapport.repasPayes))} payés au rapport, ${c.rapport.repasDeclares} déclarés par l'équipe.</span></div>`
           : (c.rapport.envoye ? `<p class="discret">Repas : ${esc(String(c.rapport.repasPayes))} payés, ${c.rapport.repasDeclares} déclarés.</p>` : '')}
         ${c.journees.map(carte).join('')}
@@ -1472,8 +1490,19 @@ ROUTES.bureau = async function (date) {
         <button class="btn btn-clair btn-petit" type="button" onclick="aller('/bureau/${jour(1)}')">Lendemain →</button>
       </div>
 
-      ${d.alertes.length ? `<div class="alerte rouge">${ICONES.attention}<span><b>${d.alertes.length} alerte${d.alertes.length > 1 ? 's' : ''} :</b><br>
-        ${d.alertes.slice(0, 6).map(a => `${esc(a.date)} · ${esc(a.type.toLowerCase().replace(/_/g, ' '))}${a.personne ? ' — ' + esc(a.personne) : ''}`).join('<br>')}</span></div>` : ''}
+      <div class="compteurs">
+        <button type="button" class="compteur rouge" data-filtre="corriger"><b>${ctl.compteurs.corriger}</b><span>à corriger</span></button>
+        <button type="button" class="compteur jaune" data-filtre="verifier"><b>${ctl.compteurs.verifier}</b><span>à vérifier</span></button>
+        <div class="compteur vert"><b>${ctl.compteurs.prets}</b><span>prêtes paie</span></div>
+      </div>
+      <div class="semaine-bureau">
+        ${ctl.semaine.map(j => `<button type="button" data-jour-bureau="${j.date}" aria-current="${j.date === date}"
+            class="${j.avenir ? 'avenir' : j.enCours ? 'en-cours' : j.corriger ? 'probleme' : 'ok'}">
+            <b>${esc(jourCourt(j.date))}</b>${j.avenir ? '—' : j.enCours ? 'en cours' : j.corriger ? `${j.corriger} ⚠` : '✓'}</button>`).join('')}
+      </div>
+      ${ctl.compteurs.corriger + ctl.compteurs.verifier + ctl.compteurs.referentiel
+        ? `<button class="btn btn-principal" type="button" onclick="aller('/controles')">Voir les ${ctl.compteurs.corriger + ctl.compteurs.verifier + ctl.compteurs.referentiel} contrôles</button>`
+        : `<div class="alerte vert">${ICONES.ok}<span>Aucun point à corriger${ctl.compteurs.justifies ? ` (${ctl.compteurs.justifies} justifié${ctl.compteurs.justifies > 1 ? 's' : ''})` : ''}.</span></div>`}
 
       ${d.chantiers.length ? d.chantiers.map(carteChantier).join('')
         : '<section class="bloc"><p class="discret">Aucun chantier au planning ce jour-là.</p></section>'}
@@ -1484,7 +1513,8 @@ ROUTES.bureau = async function (date) {
       <div class="pied">
         <div class="alerte ${d.aImporter ? 'jaune' : 'vert'}">${d.aImporter ? ICONES.horloge : ICONES.ok}<span>
           ${d.aImporter ? `<b>${d.aImporter} journée${d.aImporter > 1 ? 's' : ''}</b> prête${d.aImporter > 1 ? 's' : ''} à partir dans le Suivi RH, toutes dates confondues.`
-            : 'Rien en attente d\'envoi dans le Suivi RH.'}</span></div>
+            : 'Rien en attente d\'envoi dans le Suivi RH.'}
+          ${d.bloqueesPaie ? `<br><b>${d.bloqueesPaie}</b> autre${d.bloqueesPaie > 1 ? 's' : ''} attend${d.bloqueesPaie > 1 ? 'ent' : ''} qu'un point à corriger soit réglé.` : ''}</span></div>
         <button class="btn ${d.aImporter ? 'btn-principal' : 'btn-sombre'}" type="button" id="importer" ${d.aImporter ? '' : 'disabled'}>Envoyer dans le Suivi RH</button>
       </div>`;
 
@@ -1498,6 +1528,8 @@ ROUTES.bureau = async function (date) {
       else if (nom) toast('Nom inconnu. Reprends-le exactement comme au planning.');
     };
     $('#importer').onclick = importer;
+    $$('[data-jour-bureau]').forEach(b => b.onclick = () => aller('/bureau/' + b.dataset.jourBureau));
+    $$('[data-filtre]').forEach(b => b.onclick = () => { stock.ecrire('filtreControles', b.dataset.filtre); aller('/controles'); });
   };
 
   const agir = async donnees => {
@@ -1517,7 +1549,7 @@ ROUTES.bureau = async function (date) {
     try {
       const r = await appel('bureau_import');
       d = await appel('bureau_jour', { date });
-      toast(`${r.ecrites} journée(s) écrite(s) dans le Suivi RH.`);
+      toast(`${r.ecrites} journée(s) écrite(s) dans le Suivi RH${r.horsSuivi ? `, ${r.horsSuivi} hors Suivi RH` : ''}.`);
       if (r.ignorees && r.ignorees.length) alert('Non envoyées :\n\n' + r.ignorees.join('\n'));
     } catch (err) { toast(err.message); }
     if (toujoursIci()) dessiner();
@@ -1527,6 +1559,105 @@ ROUTES.bureau = async function (date) {
 };
 
 /** Saisie ou correction d'une journée par le bureau, pour n'importe qui. */
+// ---------------------------------------------------------------------------
+// Écran : contrôles avant paie (bureau)
+// ---------------------------------------------------------------------------
+
+const CATEGORIES_CONTROLES = [['corriger', 'À corriger'], ['verifier', 'À vérifier'], ['referentiel', 'Référentiels'], ['justifies', 'Justifiés']];
+
+ROUTES.controles = async function () {
+  const toujoursIci = ecranCourant();
+  chargement();
+  let d;
+  try { d = await appel('bureau_controles'); } catch (err) { if (toujoursIci()) erreurEcran(err); return; }
+  if (!toujoursIci()) return;
+  let filtre = stock.lire('filtreControles', 'corriger');
+  let ouvert = null;                       // contrôle dont le formulaire « Justifier » est déplié
+
+  const dansFiltre = c => (filtre === 'justifies' ? !!c.justification : !c.justification && c.cat === filtre);
+  const nombre = f => d.controles.filter(c => (f === 'justifies' ? !!c.justification : !c.justification && c.cat === f)).length;
+  const BOUTONS = {
+    saisir: c => `<button class="btn btn-principal" type="button" data-act="saisir" data-id="${esc(c.id)}">Saisir sa journée</button>`,
+    ouvrir: c => `<button class="btn btn-clair" type="button" data-act="ouvrir" data-id="${esc(c.id)}">Ouvrir la journée</button>`,
+    valider: c => `<button class="btn btn-vert" type="button" data-act="valider" data-id="${esc(c.id)}">Valider</button>`,
+    rapport: c => `<button class="btn btn-clair" type="button" data-act="rapport" data-id="${esc(c.id)}">${c.type === 'RAPPORT_MANQUANT' ? 'Remplir à sa place' : 'Ouvrir le rapport'}</button>`,
+    jour: c => `<button class="btn btn-clair" type="button" data-act="jour" data-id="${esc(c.id)}">Voir l'équipe</button>`,
+    justifier: c => `<button class="btn btn-clair" type="button" data-act="justifier" data-id="${esc(c.id)}">Justifier…</button>`,
+  };
+  const carte = c => `
+    <div class="ctl ${c.cat}" data-controle="${esc(c.id)}">
+      <div class="t">${esc(c.titre)}</div>
+      <div class="d">${esc(c.detail || '')}</div>
+      ${c.aide ? `<div class="d aide">À faire : ${esc(c.aide)}</div>` : ''}
+      ${c.justification ? `<div class="d">Justifié : ${esc(c.justification)}</div>
+        <div class="a"><button class="btn btn-clair" type="button" data-act="rouvrir" data-id="${esc(c.id)}">Annuler la justification</button></div>`
+      : ouvert === c.id ? `
+        <div class="choix" style="--n:2">${d.motifs.map(m => `<button type="button" data-motif="${esc(m)}">${esc(m)}</button>`).join('')}</div>
+        <input type="text" id="commentaire" placeholder="Commentaire (facultatif)" maxlength="300">
+        <div class="a"><button class="btn btn-clair" type="button" data-act="fermer">Annuler</button>
+          <button class="btn btn-principal" type="button" data-act="enregistrer-justif" data-id="${esc(c.id)}" disabled>Enregistrer</button></div>`
+      : (c.actions && c.actions.length ? `<div class="a">${c.actions.map(a => BOUTONS[a](c)).join('')}</div>` : '')}
+    </div>`;
+
+  const dessiner = () => {
+    const visibles = d.controles.filter(dansFiltre);
+    const dates = [...new Set(visibles.map(c => c.date))].sort().reverse();
+    APP().innerHTML = `
+      <div class="entete">
+        <button class="retour" type="button" aria-label="Retour" onclick="aller('/bureau')">${ICONES.retour}</button>
+        <div><h1>Contrôles</h1><p class="discret">Journées pas encore envoyées en paie, sur les trois dernières semaines</p></div>
+      </div>
+      <div class="filtres">${CATEGORIES_CONTROLES.map(([k, lib]) => `<button type="button" data-cat="${k}" aria-pressed="${k === filtre}">${lib} ${nombre(k)}</button>`).join('')}</div>
+      ${filtre === 'corriger' ? '<p class="discret">Ces points bloquent l\'envoi dans le Suivi RH des journées concernées.</p>' : ''}
+      ${dates.length ? dates.map(dt => `<p class="jour-titre">${esc(dateLongue(dt))}</p>${visibles.filter(c => c.date === dt).map(carte).join('')}`).join('')
+        : `<div class="alerte vert">${ICONES.ok}<span>Rien dans cette catégorie.</span></div>`}`;
+    $$('[data-cat]').forEach(b => b.onclick = () => { filtre = b.dataset.cat; ouvert = null; stock.ecrire('filtreControles', filtre); dessiner(); });
+    $$('[data-motif]').forEach(b => b.onclick = () => {
+      $$('[data-motif]').forEach(x => x.setAttribute('aria-pressed', x === b));
+      $('[data-act="enregistrer-justif"]').disabled = false;
+    });
+    $$('[data-act]').forEach(b => b.onclick = () => agir(b.dataset.act, d.controles.find(c => c.id === b.dataset.id)));
+  };
+
+  const recharger = async message => {
+    try { d = await appel('bureau_controles'); if (message) toast(message); } catch (err) { toast(err.message); }
+    if (toujoursIci()) dessiner();
+  };
+
+  const agir = async (act, c) => {
+    if (act === 'fermer') { ouvert = null; return dessiner(); }
+    if (act === 'justifier') { ouvert = c.id; return dessiner(); }
+    retourControles = true;
+    if (act === 'saisir' || act === 'ouvrir') return aller(`/bureau-journee/${c.date}/${encodeURIComponent(c.personne)}`);
+    if (act === 'rapport') return aller(`/rapport/${c.date}/${encodeURIComponent(c.responsable)}`);
+    if (act === 'jour') { retourControles = false; return aller('/bureau/' + c.date); }
+    retourControles = false;
+    $$('button').forEach(b => { b.disabled = true; });
+    try {
+      if (act === 'valider') {
+        await appel('bureau_valider', { date: c.date, quoi: 'CHEF', personnes: [c.personne] });
+        oublierJour(c.date);
+        return recharger('Journée validée.');
+      }
+      const [type, date, ...reste] = c.id.split('|');
+      if (act === 'rouvrir') {
+        await appel('bureau_justifier', { type, date, cible: reste.join('|'), annuler: true });
+        return recharger('Justification annulée.');
+      }
+      if (act === 'enregistrer-justif') {
+        const motif = ($('[data-motif][aria-pressed="true"]') || {}).dataset.motif;
+        await appel('bureau_justifier', { type, date, cible: reste.join('|'), motif, commentaire: $('#commentaire').value });
+        ouvert = null;
+        return recharger('Justifié.');
+      }
+    } catch (err) {
+      toast(err.message);
+      if (toujoursIci()) dessiner();
+    }
+  };
+  dessiner();
+};
+
 ROUTES['bureau-journee'] = async function (param) {
   const toujoursIci = ecranCourant();
   const [date, personneEncodee] = String(param || '').split('/');
@@ -1563,7 +1694,7 @@ ROUTES['bureau-journee'] = async function (param) {
         await appel('bureau_journee', Object.assign({ personne }, donneesJournee(e)));
         oublierJour(date);
         toast('Journée enregistrée.');
-        aller('/bureau/' + date);
+        aller(apresCorrectionBureau(date));
       } catch (err) { b.disabled = false; b.textContent = 'Enregistrer la journée'; $('#erreur').textContent = err.message; }
     };
     window.scrollTo(0, y);

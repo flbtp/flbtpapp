@@ -229,3 +229,35 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 
 /* Accueil : tâches du jour, séparées des chantiers pour ne pas sembler liées au dernier */
 .taches-jour { display: flex; flex-direction: column; gap: 6px; }
+
+/* Écran bureau : contrôles avant paie */
+.compteurs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.compteur { background: var(--surface); border: none; border-radius: 12px; padding: 10px 6px; text-align: center; font: inherit; color: var(--encre); }
+button.compteur { cursor: pointer; }
+.compteur b { display: block; font-family: var(--titre); font-size: 30px; line-height: 1; }
+.compteur span { font-size: 13px; color: var(--gris); }
+.compteur.rouge b, b.rouge { color: var(--rouge); }
+.compteur.jaune b { color: #8a5e00; }
+.compteur.vert b { color: var(--vert); }
+.semaine-bureau { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
+.semaine-bureau button { background: var(--surface); border: 2px solid transparent; border-radius: 10px; padding: 6px 0; font: inherit; font-size: 13px; color: var(--encre); cursor: pointer; }
+.semaine-bureau button b { display: block; font-size: 15px; }
+.semaine-bureau .probleme { border-color: var(--rouge); color: var(--rouge); }
+.semaine-bureau .ok { background: var(--vert-pale); color: var(--vert); }
+.semaine-bureau .avenir { color: var(--gris); }
+.semaine-bureau [aria-current="true"] { box-shadow: inset 0 -4px 0 var(--encre); }
+.point-controle { font-size: 14px; }
+.point-controle.corriger { color: var(--rouge); font-weight: 600; }
+.point-controle.verifier { color: #8a5e00; }
+.filtres { display: flex; gap: 6px; flex-wrap: wrap; }
+.filtres button { padding: 8px 12px; border-radius: 20px; border: none; background: var(--surface); font: inherit; font-size: 14px; font-weight: 600; color: var(--encre); cursor: pointer; }
+.filtres button[aria-pressed="true"] { background: var(--encre); color: #fff; }
+.jour-titre { font-size: 14px; font-weight: 700; color: var(--gris); text-transform: uppercase; letter-spacing: .03em; margin-bottom: -8px; }
+.ctl { background: var(--surface); border-radius: 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; border-left: 5px solid var(--rouge); }
+.ctl.verifier { border-left-color: var(--jaune); }
+.ctl.referentiel { border-left-color: var(--gris); }
+.ctl .t { font-weight: 700; font-size: 16px; }
+.ctl .d { font-size: 14px; color: var(--gris); }
+.ctl .d.aide { color: var(--encre); }
+.ctl .a { display: flex; gap: 8px; }
+.ctl .a .btn { min-height: 44px; font-size: 15px; padding: 0 10px; flex: 1; }
