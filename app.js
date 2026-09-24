@@ -12,7 +12,7 @@
  * Numéro affiché en bas de l'accueil et de l'écran de connexion.
  * À augmenter à chaque dépôt de nouveaux fichiers sur GitHub : c'est le seul numéro à changer.
  */
-const VERSION_APPLI = '30';
+const VERSION_APPLI = '31';
 
 // ---------------------------------------------------------------------------
 // Petits outils
@@ -461,7 +461,9 @@ function libellesChantiers(bloc) {
 const LIBELLES_STATUT = {
   SAISIE: ['Envoyée', 'saisie'], SIGNALEE: ['Envoyée', 'saisie'], VALIDEE_CHEF: ['Validée', 'ok'],
   VALIDEE_BUREAU: ['Validée', 'ok'], EXPORTEE: ['Validée', 'ok'], NON_SAISIE: ['À saisir', 'a-faire'], A_VENIR: ['—', ''],
+  JUSTIFIEE: ['Justifiée', 'justifiee'],
 };
+const messageAbsence = motif => `Journée justifiée par le bureau (${motif}). Vois avec le bureau si nécessaire.`;
 
 ROUTES.accueil = async function () {
   const toujoursIci = ecranCourant();
@@ -520,7 +522,8 @@ function dessinerAccueil(a, session) {
   const bloc = a.bloc;
 
   let action;
-  if (!j) action = `<button class="btn btn-principal" type="button" onclick="aller('/saisie/${a.date}')">Saisir ma journée</button>`;
+  if (!j && a.justification) action = `<div class="alerte jaune">${ICONES.attention}<span>${esc(messageAbsence(a.justification))}</span></div>`;
+  else if (!j) action = `<button class="btn btn-principal" type="button" onclick="aller('/saisie/${a.date}')">Saisir ma journée</button>`;
   else if (j.enAttente) action = `<div class="alerte jaune">${ICONES.horloge}<span>Journée gardée sur ton téléphone : ${esc(j.hEmbauche)}–${esc(j.hPause)} · ${esc(j.hReprise)}–${esc(j.hDebauche)}. Elle partira dès que possible.</span></div>`;
   else if (j.modifiable) action = `<div class="alerte vert">${ICONES.ok}<span>${j.statut === 'VALIDEE_CHEF' ? 'Journée validée' : 'Journée envoyée'} : ${esc(j.hEmbauche)}–${esc(j.hPause)} · ${esc(j.hReprise)}–${esc(j.hDebauche)}</span></div>
     <button class="btn btn-clair btn-petit" type="button" onclick="aller('/saisie/${a.date}')">Corriger ma journée</button>`;
@@ -575,7 +578,7 @@ function dessinerAccueil(a, session) {
           const [lib, cls] = LIBELLES_STATUT[s.statut] || ['—', ''];
           // Une journée validée d'office (celle du chef) reste corrigeable : le serveur le dit avec « modifiable ».
           const cliquable = ['NON_SAISIE', 'SIGNALEE', 'SAISIE'].includes(s.statut) || s.modifiable === true;
-          return `<button type="button" class="jour ${cls}" ${cliquable ? `data-jour="${s.date}"` : 'disabled'} aria-label="${esc(dateLongue(s.date))} : ${esc(lib)}">
+          return `<button type="button" class="jour ${cls}" ${cliquable ? `data-jour="${s.date}"` : 'disabled'} aria-label="${esc(dateLongue(s.date))} : ${esc(lib)}${s.justification ? ' — ' + esc(s.justification) : ''}" ${s.justification ? `title="${esc(messageAbsence(s.justification))}"` : ''}>
             <b>${esc(jourCourt(s.date))}</b>${cls === 'ok' ? ICONES.ok : '<span style="height:18px"></span>'}<small>${esc(lib)}</small></button>`;
         }).join('')}
       </div>
@@ -896,6 +899,8 @@ ROUTES.saisie = async function (date) {
     }
   }
   if (a && a.journee && !a.journee.modifiable) { toast('Journée déjà validée.'); return aller('/accueil'); }
+  const absence = a && !a.journee && (a.justification || ((a.semaine || []).find(x => x.date === date) || {}).justification);
+  if (absence) { toast(messageAbsence(absence)); return aller('/accueil'); }
 
   const e = etatInitial(date, a && a.journee, a && a.bloc);
   const dessiner = () => {
@@ -1245,6 +1250,9 @@ ROUTES.equipe = async function (date) {
 
   const carte = m => {
     const j = m.journee;
+    if (!j && m.justification) return `
+      <section class="bloc"><div class="ligne-tete"><span>${esc(m.personne)}${m.estMoi ? ' <span class="discret">(chef)</span>' : ''}</span><span class="pastille">Justifiée</span></div>
+        <p class="discret">${esc(messageAbsence(m.justification))}</p></section>`;
     if (!j && m.estMoi) return `
       <section class="bloc"><div class="ligne-tete"><span>${esc(m.personne)} <span class="discret">(chef)</span></span><span class="pastille rouge">Pas saisie</span></div>
         <p class="discret">Ta propre journée n'est pas encore saisie.</p>
@@ -1462,6 +1470,38 @@ const ETIQUETTES = {
  * le bureau enchaîne les points à corriger sans repasser par l'écran du jour.
  */
 let retourControles = false;
+
+/**
+ * Bande de jours défilable : au doigt, le défilement horizontal natif ; à la souris, on la fait
+ * glisser en maintenant le clic. Un glissement ne compte pas comme un choix de jour.
+ */
+let recentrerBande = () => {};
+window.addEventListener('resize', () => recentrerBande());
+let glissement = null;                    // { bande, x, gauche, glisse } pendant un glissement à la souris
+window.addEventListener('pointermove', ev => {
+  if (!glissement) return;
+  const dx = ev.clientX - glissement.x;
+  if (Math.abs(dx) > 5) glissement.glisse = true;
+  glissement.bande.scrollLeft = glissement.gauche - dx;
+});
+window.addEventListener('pointerup', () => { if (glissement) setTimeout(() => { glissement = null; }, 0); });
+
+function brancherBande(bande, choisir) {
+  if (!bande) return;
+  const actif = bande.querySelector('[aria-current="true"]');
+  // Centré après la mise en page (polices comprises), sinon la position calculée est fausse.
+  const centrer = () => { if (actif && !glissement) bande.scrollLeft = actif.offsetLeft - bande.offsetLeft - (bande.clientWidth - actif.clientWidth) / 2; };
+  centrer(); requestAnimationFrame(centrer);
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(centrer);
+  recentrerBande = () => { if (document.body.contains(bande)) centrer(); };     // téléphone tourné, fenêtre redimensionnée
+  bande.onpointerdown = ev => {
+    if (ev.pointerType === 'mouse') glissement = { bande, x: ev.clientX, gauche: bande.scrollLeft, glisse: false };
+  };
+  bande.querySelectorAll('[data-jour-bureau]').forEach(b => b.onclick = ev => {
+    if (glissement && glissement.glisse) { ev.preventDefault(); return; }
+    choisir(b.dataset.jourBureau);
+  });
+}
 function apresCorrectionBureau(date) {
   const vers = retourControles ? '/controles' : '/bureau/' + date;
   retourControles = false;
@@ -1487,6 +1527,13 @@ ROUTES.bureau = async function (date) {
     .map(c => `<p class="point-controle ${c.cat}">${c.cat === 'corriger' ? '⚠' : '•'} ${esc(c.titre.split(' — ')[0])}</p>`).join('');
   const carte = x => {
     const j = x.journee;
+    if (!j && x.justification) return `
+      <div class="ligne">
+        <div class="ligne-tete"><span>${esc(x.personne)}</span><span class="pastille">Justifiée</span></div>
+        <p class="discret">${x.justification.type === 'JOUR_NON_TRAVAILLE' ? 'Jour chômé' : 'Justifiée'} : ${esc(x.justification.motif)}</p>
+        <button class="btn btn-clair btn-petit" type="button" data-annuler-justif="${esc(x.justification.type)}|${esc(x.justification.cible)}">
+          ${x.justification.type === 'JOUR_NON_TRAVAILLE' ? 'Annuler le jour chômé (tout le monde)' : 'Annuler la justification'}</button>
+      </div>`;
     const [lib, couleur] = j ? (ETIQUETTES[x.exportee ? 'EXPORTEE' : (x.valideBureau ? 'VALIDEE_BUREAU' : j.statut)] || [j.statut, ''])
       : ['Pas saisie', 'rouge'];
     return `
@@ -1517,7 +1564,7 @@ ROUTES.bureau = async function (date) {
     const prets = c.journees.filter(x => x.journee && !x.exportee && !x.valideBureau
       && x.journee.statut !== 'SAISIE' && x.journee.statut !== 'SIGNALEE').map(x => x.personne);
     const aValider = c.journees.filter(x => x.journee && (x.journee.statut === 'SAISIE' || x.journee.statut === 'SIGNALEE')).length;
-    const manquantes = c.journees.filter(x => !x.journee).length;
+    const manquantes = c.journees.filter(x => !x.journee && !x.justification).length;
     return `
       <section class="bloc">
         <div class="bloc-titre">${esc(c.villes.map(nomCourt).join(' + '))}</div>
@@ -1542,21 +1589,20 @@ ROUTES.bureau = async function (date) {
         <button class="retour" type="button" aria-label="Retour" onclick="aller('/accueil')">${ICONES.retour}</button>
         <div><h1>Écran bureau</h1><p class="discret">${esc(dateLongue(date))}</p></div>
       </div>
-      <div class="duo">
-        <button class="btn btn-clair btn-petit" type="button" onclick="aller('/bureau/${jour(-1)}')">← Veille</button>
-        <button class="btn btn-clair btn-petit" type="button" onclick="aller('/bureau/${jour(1)}')">Lendemain →</button>
-      </div>
 
       <div class="compteurs">
         <button type="button" class="compteur rouge" data-filtre="corriger"><b>${ctl.compteurs.corriger}</b><span>à corriger</span></button>
         <button type="button" class="compteur jaune" data-filtre="verifier"><b>${ctl.compteurs.verifier}</b><span>à vérifier</span></button>
         <div class="compteur vert"><b>${ctl.compteurs.prets}</b><span>prêtes paie</span></div>
       </div>
-      <div class="semaine-bureau">
-        ${ctl.semaine.map(j => `<button type="button" data-jour-bureau="${j.date}" aria-current="${j.date === date}"
-            class="${j.avenir ? 'avenir' : j.enCours ? 'en-cours' : j.corriger ? 'probleme' : 'ok'}">
-            <b>${esc(jourCourt(j.date))}</b>${j.avenir ? '—' : j.enCours ? 'en cours' : j.corriger ? `${j.corriger} ⚠` : j.nonTravaille ? 'non trav.' : '✓'}</button>`).join('')}
+      <!-- Quatre semaines de jours ouvrés : faire glisser pour remonter le temps. -->
+      <div class="bande-jours" id="bande">
+        ${ctl.jours.map(j => `<button type="button" data-jour-bureau="${j.date}" aria-current="${j.date === date}"
+            class="${j.avenir ? 'avenir' : j.enCours ? 'en-cours' : j.horsControle ? 'hors' : j.corriger ? 'probleme' : 'ok'} ${new Date(j.date + 'T12:00:00Z').getUTCDay() === 1 ? 'lundi' : ''}">
+            <small>${esc(jourCourt(j.date))}</small><b>${Number(j.date.slice(8))}</b>${j.avenir ? '—' : j.enCours ? 'en cours' : j.horsControle ? '·' : j.corriger ? `${j.corriger} ⚠` : j.nonTravaille ? 'chômé' : '✓'}</button>`).join('')}
       </div>
+      ${date !== aujourdhui() ? `<button class="btn btn-clair btn-petit" type="button" id="aujourdhui">Revenir à aujourd'hui</button>`
+        : '<p class="discret mini-aide">Fais glisser les jours vers la droite pour remonter aux semaines précédentes.</p>'}
       ${ctl.compteurs.corriger + ctl.compteurs.verifier + ctl.compteurs.referentiel
         ? `<button class="btn btn-principal" type="button" onclick="aller('/controles')">Voir les ${ctl.compteurs.corriger + ctl.compteurs.verifier + ctl.compteurs.referentiel} contrôles</button>`
         : `<div class="alerte vert">${ICONES.ok}<span>Aucun point à corriger${ctl.compteurs.justifies ? ` (${ctl.compteurs.justifies} justifié${ctl.compteurs.justifies > 1 ? 's' : ''})` : ''}.</span></div>`}
@@ -1587,7 +1633,19 @@ ROUTES.bureau = async function (date) {
       else if (nom) toast('Nom inconnu. Reprends-le exactement comme au planning.');
     };
     $('#importer').onclick = importer;
-    $$('[data-jour-bureau]').forEach(b => b.onclick = () => aller('/bureau/' + b.dataset.jourBureau));
+    brancherBande($('#bande'), jourChoisi => aller('/bureau/' + jourChoisi));
+    if ($('#aujourdhui')) $('#aujourdhui').onclick = () => aller('/bureau/' + aujourdhui());
+    $$('[data-annuler-justif]').forEach(b => b.onclick = async () => {
+      const [type, cible] = b.dataset.annulerJustif.split('|');
+      $$('button').forEach(x => { x.disabled = true; });
+      try {
+        await appel('bureau_justifier', { date, elements: [{ type, cible }], annuler: true });
+        d = await appel('bureau_jour', { date });
+        oublierJour(date);
+        toast('Justification annulée : la journée est de nouveau attendue.');
+      } catch (err) { toast(err.message); }
+      if (toujoursIci()) dessiner();
+    });
     $$('[data-filtre]').forEach(b => b.onclick = () => { stock.ecrire('filtreControles', b.dataset.filtre); aller('/controles'); });
   };
 
@@ -1779,7 +1837,7 @@ ROUTES['bureau-journee'] = async function (param) {
     const y = window.scrollY;
     APP().innerHTML = `
       <div class="entete">
-        <button class="retour" type="button" aria-label="Retour" onclick="aller('/bureau/${date}')">${ICONES.retour}</button>
+        <button class="retour" type="button" aria-label="Retour" onclick="history.back()">${ICONES.retour}</button>
         <div><h1>${esc(personne)}</h1><p class="discret">${esc(dateLongue(date))} — saisie par le bureau</p></div>
       </div>
       <div class="alerte jaune">${ICONES.attention}<span>Cette journée sera marquée « validée » d'office, au nom du bureau.</span></div>
