@@ -12,7 +12,7 @@
  * Numéro affiché en bas de l'accueil et de l'écran de connexion.
  * À augmenter à chaque dépôt de nouveaux fichiers sur GitHub : c'est le seul numéro à changer.
  */
-const VERSION_APPLI = '25';
+const VERSION_APPLI = '26';
 
 // ---------------------------------------------------------------------------
 // Petits outils
@@ -510,7 +510,7 @@ function resumeChef(a, moi) {
     </div>
     <div class="duo">
       <button class="btn ${c.rapportEnvoye ? 'btn-sombre' : 'btn-principal'} btn-petit" type="button" onclick="aller('/rapport/${a.date}')">Rapport de chantier</button>
-      <button class="btn ${c.aValider ? 'btn-principal' : 'btn-sombre'} btn-petit" type="button" onclick="aller('/equipe/${a.date}')">Valider mon équipe${c.aValider ? ` (${c.aValider})` : ''}</button>
+      <button class="btn ${c.aValider ? 'btn-principal' : 'btn-sombre'} btn-petit" type="button" onclick="aller('/equipe/${a.date}')">Valider mon équipe</button>
     </div>`;
 }
 
@@ -971,6 +971,26 @@ function optionsMateriaux(liste, choisi) {
     .map(x => `<option ${x.materiau === choisi ? 'selected' : ''}>${esc(x.materiau)}</option>`).join('')}</optgroup>`).join('');
 }
 
+/**
+ * Petites vignettes (≈ 10 Ko) des BL envoyés depuis ce téléphone. Le serveur ne renvoie que des liens
+ * Drive, illisibles sans compte : sans elles, un BL déjà envoyé n'apparaîtrait qu'en case grise.
+ * Gardées pour les 10 derniers jours ; si la mémoire manque, on s'en passe.
+ */
+const CLE_APERCUS = 'flbtp.apercusBl';
+function apercusBl(date, chantier) {
+  try { return (JSON.parse(localStorage.getItem(CLE_APERCUS) || '{}')[date + '|' + chantier]) || []; } catch (e) { return []; }
+}
+function garderApercu(date, chantier, apercu) {
+  try {
+    const tous = JSON.parse(localStorage.getItem(CLE_APERCUS) || '{}');
+    const cle = date + '|' + chantier;
+    tous[cle] = [...(tous[cle] || []), apercu].slice(-12);
+    const dates = [...new Set(Object.keys(tous).map(k => k.slice(0, 10)))].sort().reverse();
+    Object.keys(tous).forEach(k => { if (!dates.slice(0, 10).includes(k.slice(0, 10))) delete tous[k]; });
+    localStorage.setItem(CLE_APERCUS, JSON.stringify(tous));
+  } catch (e) { /* mémoire pleine : pas de vignette, rien de grave */ }
+}
+
 async function redimensionner(fichier, cote = 1600, qualite = 0.78) {
   const url = URL.createObjectURL(fichier);
   try {
@@ -1042,8 +1062,12 @@ ROUTES.rapport = async function (param) {
 
       <h2>Bons de livraison</h2>
       <div class="photos">
-        ${Array.from({ length: c.blEnvoyes }).map(() => '<div class="vignette"><em>Envoyé</em></div>').join('')}
-        ${c.photos.map(ph => `<div class="vignette" style="background-image:url('${ph.apercu}')"><em>${ph.enAttente ? 'En attente' : 'Envoyé'}</em></div>`).join('')}
+        ${Array.from({ length: c.blEnvoyes }).map((_, k) => {
+          const vu = apercusBl(date, c.libelle)[k];
+          return `<div class="vignette" ${vu ? `style="background-image:url('${vu}')"` : ''}><em>Envoyé</em></div>`;
+        }).join('')}
+        ${c.photos.map(ph => `<div class="vignette ${ph.etat}" ${ph.apercu ? `style="background-image:url('${ph.apercu}')"` : ''}>
+          <em>${{ prep: 'Préparation…', envoi: 'Envoi…', ok: 'Envoyé', attente: 'En attente', echec: 'Échec' }[ph.etat]}</em></div>`).join('')}
         <label class="prendre">${ICONES.photo}Photo<input type="file" accept="image/*" capture="environment" data-photo="${i}"></label>
       </div>
 
@@ -1124,15 +1148,25 @@ ROUTES.rapport = async function (param) {
     $$('[data-photo]').forEach(input => input.onchange = async ev => {
       const f = ev.target.files[0]; if (!f) return;
       const c = e.chantiers[+input.dataset.photo];
-      toast('Préparation de la photo…');
+      // La vignette apparaît TOUT DE SUITE, avec son état : le dépôt dans Drive peut prendre plusieurs
+      // secondes, et sans rien à l'écran on croit que ça n'a pas marché et on renvoie la même photo.
+      const ph = { apercu: '', etat: 'prep' };
+      c.photos.push(ph);
+      dessiner();
+      const redessiner = () => { if (toujoursIci()) dessiner(); };
       try {
-        const image = await redimensionner(f);
+        const [image, apercu] = await Promise.all([redimensionner(f), redimensionner(f, 240, 0.6)]);
+        ph.apercu = apercu; ph.etat = 'envoi'; redessiner();
         // Une photo = un envoi : si le réseau coupe, on ne perd pas tout le rapport.
         const r = await envoyer('ajouter_bl', { date, auNomDe, chantier: c.libelle, image }, `Photo de BL — ${c.libelle}`);
-        c.photos.push({ apercu: image, enAttente: !!r.enAttente });
+        ph.etat = r.enAttente ? 'attente' : 'ok';
+        if (!r.enAttente) garderApercu(date, c.libelle, apercu);
         toast(r.enAttente ? 'Photo gardée, elle partira avec le réseau.' : 'Photo envoyée.');
-        dessiner();
-      } catch (err) { toast(err.message); }
+      } catch (err) {
+        ph.etat = 'echec';
+        toast(`Photo non envoyée : ${err.message}`);
+      }
+      redessiner();
     });
     $('#envoyer').onclick = soumettre;
     window.scrollTo(0, y);
@@ -1189,7 +1223,8 @@ ROUTES.equipe = async function (date) {
         <button class="btn btn-principal btn-petit" type="button" onclick="aller('/saisie/${date}')">Saisir ma journée</button></section>`;
     if (!j) return `
       <section class="bloc"><div class="ligne-tete"><span>${esc(m.personne)}</span><span class="pastille rouge">Pas saisie</span></div>
-        <p class="discret">Prévu au planning sur ce chantier, aucune journée reçue.</p></section>`;
+        <p class="discret">Prévu au planning sur ce chantier, aucune journée reçue.</p>
+        <button class="btn btn-clair btn-petit" type="button" data-saisir="${esc(m.personne)}">Saisir sa journée</button></section>`;
     const pastille = { SAISIE: ['À valider', 'attente'], SIGNALEE: ['À valider', 'attente'], VALIDEE_CHEF: ['Validée', 'vert'],
       VALIDEE_BUREAU: ['Validée bureau', 'vert'], EXPORTEE: ['Validée bureau', 'vert'] }[j.statut] || [j.statut, ''];
     const aValider = aValiderStatut(j.statut);
@@ -1232,6 +1267,7 @@ ROUTES.equipe = async function (date) {
     $$('[data-valider]').forEach(b => b.onclick = () => decider([b.dataset.valider], 'VALIDER'));
     $$('[data-devalider]').forEach(b => b.onclick = () => decider([b.dataset.devalider], 'DEVALIDER'));
     $$('[data-corriger]').forEach(b => b.onclick = () => aller(`/chef-journee/${date}/${encodeURIComponent(b.dataset.corriger)}`));
+    $$('[data-saisir]').forEach(b => b.onclick = () => aller(`/chef-journee/${date}/${encodeURIComponent(b.dataset.saisir)}`));
     $('#toutValider').onclick = () => decider(aValider.map(m => m.personne), 'VALIDER');
   };
 
@@ -1273,18 +1309,21 @@ ROUTES['chef-journee'] = async function (param) {
   if (!toujoursIci()) return;
 
   const m = d.membres.find(x => x.personne === personne);
-  if (!m || !m.journee) { toast(`${personne} n'a pas de journée à corriger.`); return aller('/equipe/' + date); }
-  if (m.journee.statut !== 'SAISIE' && m.journee.statut !== 'SIGNALEE') {
+  if (!m || m.interimaire) { toast(`${personne} n'est pas dans ton équipe ce jour-là.`); return aller('/equipe/' + date); }
+  // Pas de journée reçue : le chef la saisit à la place du gars, avec les chantiers et horaires habituels du jour.
+  const nouvelle = !m.journee;
+  if (!nouvelle && m.journee.statut !== 'SAISIE' && m.journee.statut !== 'SIGNALEE') {
     toast("Journée validée : dévalide-la d'abord pour la corriger."); return aller('/equipe/' + date);
   }
   const e = etatInitial(date, m.journee, d.bloc);
+  const idEnvoi = uuid();          // un enregistrement relancé après une coupure n'est pas compté deux fois
 
   const dessiner = () => {
     const y = window.scrollY;
     APP().innerHTML = `
       <div class="entete">
         <button class="retour" type="button" aria-label="Retour" onclick="aller('/equipe/${date}')">${ICONES.retour}</button>
-        <div><h1>${esc(personne)}</h1><p class="discret">${esc(dateLongue(date))} — correction par le chef</p></div>
+        <div><h1>${esc(personne)}</h1><p class="discret">${esc(dateLongue(date))} — ${nouvelle ? 'saisie' : 'correction'} par le chef</p></div>
       </div>
       <div class="alerte jaune">${ICONES.attention}<span>Une fois enregistrée, la journée est validée à ton nom.</span></div>
       ${formulaireJournee(e, ref, false)}
@@ -1295,9 +1334,9 @@ ROUTES['chef-journee'] = async function (param) {
       if (probleme) { $('#erreur').textContent = probleme; $('#erreur').scrollIntoView({ block: 'center' }); return; }
       const b = $('#envoyer'); b.disabled = true; b.textContent = 'Enregistrement…';
       try {
-        await appel('chef_journee', Object.assign({ personne }, donneesJournee(e)));
+        await appel('chef_journee', Object.assign({ personne }, donneesJournee(e)), idEnvoi);
         oublierJour(date);
-        toast('Journée corrigée et validée.');
+        toast(nouvelle ? 'Journée saisie et validée.' : 'Journée corrigée et validée.');
         aller('/equipe/' + date);
       } catch (err) {
         b.disabled = false; b.textContent = 'Enregistrer et valider';

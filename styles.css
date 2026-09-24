@@ -152,6 +152,11 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .photos { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
 .photos .vignette { aspect-ratio: 3 / 4; border-radius: 8px; background: var(--creux) center / cover no-repeat; position: relative; }
 .photos .vignette em { position: absolute; left: 4px; bottom: 4px; font-size: 11px; font-style: normal; background: var(--jaune-pale); padding: 2px 6px; border-radius: 4px; }
+/* Photo en cours de préparation ou d'envoi : visible tout de suite, qui « respire » tant que ce n'est pas fini. */
+.photos .vignette.prep, .photos .vignette.envoi { animation: respire 1.2s ease-in-out infinite; }
+.photos .vignette.echec { outline: 2px solid #C0392B; }
+.photos .vignette.echec em { background: #C0392B; color: #fff; }
+@keyframes respire { 50% { opacity: .55; } }
 .photos label.prendre { aspect-ratio: 3 / 4; border: 2px dashed var(--encre); border-radius: 8px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; font-size: 13px; cursor: pointer; background: var(--surface); }
 .photos input { position: absolute; width: 1px; height: 1px; opacity: 0; }
 .chips { display: flex; flex-wrap: wrap; gap: 8px; }
