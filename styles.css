@@ -263,3 +263,7 @@ button.compteur { cursor: pointer; }
 .ctl .a .btn { min-height: 44px; font-size: 15px; padding: 0 10px; flex: 1; }
 .ctl .case { display: flex; gap: 10px; align-items: center; font-size: 15px; font-weight: 600; }
 .ctl .case input { width: 22px; height: 22px; flex-shrink: 0; accent-color: var(--encre); }
+.coches { display: flex; flex-direction: column; gap: 10px; }
+.case { display: flex; gap: 10px; align-items: center; font-size: 16px; font-weight: 600; }
+.case input { width: 22px; height: 22px; flex-shrink: 0; accent-color: var(--encre); }
+.alerte.mini { font-size: 14px; padding: 8px 10px; }

@@ -12,7 +12,7 @@
  * Numéro affiché en bas de l'accueil et de l'écran de connexion.
  * À augmenter à chaque dépôt de nouveaux fichiers sur GitHub : c'est le seul numéro à changer.
  */
-const VERSION_APPLI = '29';
+const VERSION_APPLI = '30';
 
 // ---------------------------------------------------------------------------
 // Petits outils
@@ -524,6 +524,7 @@ function dessinerAccueil(a, session) {
   else if (j.enAttente) action = `<div class="alerte jaune">${ICONES.horloge}<span>Journée gardée sur ton téléphone : ${esc(j.hEmbauche)}–${esc(j.hPause)} · ${esc(j.hReprise)}–${esc(j.hDebauche)}. Elle partira dès que possible.</span></div>`;
   else if (j.modifiable) action = `<div class="alerte vert">${ICONES.ok}<span>${j.statut === 'VALIDEE_CHEF' ? 'Journée validée' : 'Journée envoyée'} : ${esc(j.hEmbauche)}–${esc(j.hPause)} · ${esc(j.hReprise)}–${esc(j.hDebauche)}</span></div>
     <button class="btn btn-clair btn-petit" type="button" onclick="aller('/saisie/${a.date}')">Corriger ma journée</button>`;
+  else if (j.parBureau && a.estResponsable) action = `<div class="alerte vert">${ICONES.ok}<span>Journée validée par le bureau. Pour la modifier, adresse-toi au bureau.</span></div>`;
   else action = `<div class="alerte vert">${ICONES.ok}<span>Journée validée. Pour une correction, vois avec ton chef ou le bureau.</span></div>`;
 
   // Le bureau ne saisit pas d'heures : son accueil mène directement à son écran.
@@ -662,7 +663,11 @@ function choix(nom, options, valeur, n) {
   </div>`;
 }
 
-function formulaireJournee(e, ref, interimaire) {
+/**
+ * options.chantiersPossibles : les chantiers du chef, à cocher (intérimaire : au moins un) au lieu de
+ * la liste de tous les chantiers. options.nomVerrouille : correction d'un intérimaire, son nom ne change pas.
+ */
+function formulaireJournee(e, ref, interimaire, options = {}) {
   const communes = ref.lieux.filter(l => l.type !== 'DEPOT');
   const chantiers = ref.chantiers && ref.chantiers.length ? ref.chantiers : communes.map(l => ({ libelle: l.libelle }));
   const total = (() => {
@@ -677,12 +682,17 @@ function formulaireJournee(e, ref, interimaire) {
     ${interimaire ? `
     <section class="bloc">
       <div class="champ"><label for="nomInterimaire">Nom de l'intérimaire</label>
-        <input id="nomInterimaire" type="text" autocomplete="off" value="${esc(e.nomInterimaire)}" data-champ="nomInterimaire"></div>
+        <input id="nomInterimaire" type="text" autocomplete="off" value="${esc(e.nomInterimaire)}" data-champ="nomInterimaire" ${options.nomVerrouille ? 'readonly' : ''}></div>
       <div class="champ"><label for="agence">Agence</label>
         <input id="agence" type="text" autocomplete="off" value="${esc(e.agence)}" data-champ="agence" placeholder="Randstad, Adéquat, Temporis…"></div>
     </section>` : ''}
 
     <section class="bloc">
+      ${options.chantiersPossibles ? `
+      <div class="champ">
+        <span class="etiquette">Chantiers (au moins un)</span>
+        <div class="coches">${options.chantiersPossibles.map(c => `<label class="case"><input type="checkbox" data-coche-chantier="${esc(c)}" ${e.chantiers.includes(c) ? 'checked' : ''}> ${esc(nomCourt(c))}</label>`).join('')}</div>
+      </div>` : `
       <div class="champ">
         <span class="etiquette">${e.chantiers.length > 1 ? 'Chantiers' : 'Chantier'}</span>
         <div class="chips">${e.chantiers.map(c => `<span class="chip">${esc(nomCourt(c))}<button type="button" data-retirer="${esc(c)}" aria-label="Retirer ${esc(c)}">×</button></span>`).join('') || '<span class="discret">Aucun chantier choisi</span>'}</div>
@@ -690,9 +700,9 @@ function formulaireJournee(e, ref, interimaire) {
           <option value="">+ Ajouter un chantier</option>
           ${chantiers.filter(c => !e.chantiers.includes(c.libelle)).map(c => `<option value="${esc(c.libelle)}">${esc(nomCourt(c.libelle))}</option>`).join('')}
         </select>
-      </div>
+      </div>`}
       <div class="champ">
-        <label for="lieuEmbauche">Où as-tu embauché ?</label>
+        <label for="lieuEmbauche">${interimaire ? 'Où a-t-il embauché ?' : 'Où as-tu embauché ?'}</label>
         <select id="lieuEmbauche" data-champ="lieuEmbauche">
           ${e.lieuEmbauche ? '' : '<option value="">Choisir…</option>'}
           ${e.chantiers.length ? `<optgroup label="Sur le chantier">${e.chantiers.map(c => `<option value="${esc(c)}" ${c === e.lieuEmbauche ? 'selected' : ''}>${esc(nomCourt(c))}</option>`).join('')}</optgroup>` : ''}
@@ -794,6 +804,13 @@ function brancherFormulaire(e, redessiner) {
   if (ajout) ajout.onchange = () => {
     if (ajout.value) { e.chantiers.push(ajout.value); if (!e.lieuEmbauche) e.lieuEmbauche = ajout.value; redessiner(); }
   };
+  $$('[data-coche-chantier]').forEach(b => b.onchange = () => {
+    const tous = $$('[data-coche-chantier]').map(x => x.dataset.cocheChantier);
+    const coches = new Set($$('[data-coche-chantier]').filter(x => x.checked).map(x => x.dataset.cocheChantier));
+    e.chantiers = tous.filter(c => coches.has(c));            // dans l'ordre du planning
+    if (!e.chantiers.includes(e.lieuEmbauche) && !(e.lieuEmbauche && !tous.includes(e.lieuEmbauche))) e.lieuEmbauche = e.chantiers[0] || '';
+    redessiner();
+  });
   $$('[data-retirer]').forEach(b => b.onclick = () => {
     e.chantiers = e.chantiers.filter(c => c !== b.dataset.retirer);
     if (e.lieuEmbauche === b.dataset.retirer) e.lieuEmbauche = e.chantiers[0] || '';
@@ -1236,9 +1253,12 @@ ROUTES.equipe = async function (date) {
       <section class="bloc"><div class="ligne-tete"><span>${esc(m.personne)}</span><span class="pastille rouge">Pas saisie</span></div>
         <p class="discret">Prévu au planning sur ce chantier, aucune journée reçue.</p>
         <button class="btn btn-clair btn-petit" type="button" data-saisir="${esc(m.personne)}">Saisir sa journée</button></section>`;
-    const pastille = { SAISIE: ['À valider', 'attente'], SIGNALEE: ['À valider', 'attente'], VALIDEE_CHEF: ['Validée', 'vert'],
-      VALIDEE_BUREAU: ['Validée bureau', 'vert'], EXPORTEE: ['Validée bureau', 'vert'] }[j.statut] || [j.statut, ''];
-    const aValider = aValiderStatut(j.statut);
+    const pastille = j.parBureau ? ['Validée bureau', 'vert']
+      : ({ SAISIE: ['À valider', 'attente'], SIGNALEE: ['À valider', 'attente'], VALIDEE_CHEF: ['Validée', 'vert'],
+        VALIDEE_BUREAU: ['Validée bureau', 'vert'], EXPORTEE: ['Validée bureau', 'vert'] }[j.statut] || [j.statut, '']);
+    const aValider = !j.parBureau && aValiderStatut(j.statut);
+    // Validée ou modifiée par le bureau : plus de bouton, le chef doit savoir à qui s'adresser.
+    const bureau = j.parBureau ? `<p class="alerte jaune mini">${ICONES.attention}<span>${m.estMoi ? 'Ta journée a été validée ou modifiée' : 'Validée ou modifiée'} par le bureau : pour toute modification, adresse-toi au bureau.</span></p>` : '';
     return `
       <section class="bloc" ${aValider ? 'style="border:2px solid var(--jaune)"' : ''}>
         <div class="ligne-tete"><span>${esc(m.personne)}${m.estMoi ? ' <span class="discret">(chef)</span>' : ''}${m.interimaire ? ' <span class="discret">(intérim)</span>' : ''}</span>
@@ -1246,14 +1266,15 @@ ROUTES.equipe = async function (date) {
         <p>${esc(j.hEmbauche)}–${esc(j.hPause)} · ${esc(j.hReprise)}–${esc(j.hDebauche)} · <b>${esc(j.total)}</b></p>
         <p class="discret">${esc([j.trajet, j.tachesSuppMin ? `${j.tachesSuppMin} min ${j.tachesSupp}` : '', { AUCUN: 'Pas de repas', PANIER: 'Panier', RESTAURANT: 'Restaurant' }[j.repas]].filter(Boolean).join(' — '))}</p>
 
-        ${!aValider && j.statut === 'VALIDEE_CHEF' ? (m.estMoi
+        ${bureau}
+        ${!j.parBureau && !aValider && j.statut === 'VALIDEE_CHEF' ? (m.estMoi
           // Sa propre journée, validée d'office : il la corrige directement, elle reste validée.
           ? `<button class="btn btn-clair btn-petit" type="button" onclick="aller('/saisie/${date}')">Corriger ma journée</button>`
           : `<button class="btn btn-clair btn-petit" type="button" data-devalider="${esc(m.personne)}">Dévalider pour correction</button>`) : ''}
         ${aValider ? (m.estMoi
             ? `<div class="duo"><button class="btn btn-clair btn-petit" type="button" onclick="aller('/saisie/${date}')">Corriger</button>
             <button class="btn btn-vert btn-petit" type="button" data-valider="${esc(m.personne)}">Valider ma journée</button></div>`
-            : `<div class="duo"><button class="btn btn-clair btn-petit" type="button" data-corriger="${esc(m.personne)}">Corriger</button>
+            : `<div class="duo"><button class="btn btn-clair btn-petit" type="button" ${m.interimaire ? `data-corriger-interim="${esc(m.personne)}"` : `data-corriger="${esc(m.personne)}"`}>Corriger</button>
             <button class="btn btn-vert btn-petit" type="button" data-valider="${esc(m.personne)}">Valider</button></div>`) : ''}
       </section>`;
   };
@@ -1279,6 +1300,7 @@ ROUTES.equipe = async function (date) {
     $$('[data-devalider]').forEach(b => b.onclick = () => decider([b.dataset.devalider], 'DEVALIDER'));
     $$('[data-corriger]').forEach(b => b.onclick = () => aller(`/chef-journee/${date}/${encodeURIComponent(b.dataset.corriger)}`));
     $$('[data-saisir]').forEach(b => b.onclick = () => aller(`/chef-journee/${date}/${encodeURIComponent(b.dataset.saisir)}`));
+    $$('[data-corriger-interim]').forEach(b => b.onclick = () => aller(`/interimaire/${date}/-/${encodeURIComponent(b.dataset.corrigerInterim)}`));
     $('#toutValider').onclick = () => decider(aValider.map(m => m.personne), 'VALIDER');
   };
 
@@ -1320,7 +1342,8 @@ ROUTES['chef-journee'] = async function (param) {
   if (!toujoursIci()) return;
 
   const m = d.membres.find(x => x.personne === personne);
-  if (!m || m.interimaire) { toast(`${personne} n'est pas dans ton équipe ce jour-là.`); return aller('/equipe/' + date); }
+  if (m && m.interimaire) return aller(`/interimaire/${date}/-/${encodeURIComponent(personne)}`);
+  if (!m) { toast(`${personne} n'est pas dans ton équipe ce jour-là.`); return aller('/equipe/' + date); }
   // Pas de journée reçue : le chef la saisit à la place du gars, avec les chantiers et horaires habituels du jour.
   const nouvelle = !m.journee;
   if (!nouvelle && m.journee.statut !== 'SAISIE' && m.journee.statut !== 'SIGNALEE') {
@@ -1363,25 +1386,46 @@ ROUTES['chef-journee'] = async function (param) {
 // Écran : ajouter un intérimaire (responsable du bloc)
 // ---------------------------------------------------------------------------
 
-ROUTES.interimaire = async function (date) {
-  date = /^\d{4}-\d{2}-\d{2}$/.test(date || '') ? date : aujourdhui();
+/**
+ * Journée d'un intérimaire. /interimaire/<date> : le chef ajoute ;
+ * /interimaire/<date>/<chef> : le bureau ajoute au nom de ce chef ;
+ * /interimaire/<date>/<chef ou ->/<INTERIM NOM> : correction (même écran, nom verrouillé).
+ * Ses chantiers sont cochés parmi ceux du chef : il compte dans son équipe et ses repas, partout.
+ */
+ROUTES.interimaire = async function (param) {
+  const [dateBrute, chefEncode, libelleEncode] = String(param || '').split('/');
+  const date = /^\d{4}-\d{2}-\d{2}$/.test(dateBrute || '') ? dateBrute : aujourdhui();
+  const auNomDe = chefEncode && chefEncode !== '-' ? decodeURIComponent(chefEncode) : null;
+  const libelle = libelleEncode ? decodeURIComponent(libelleEncode) : null;
   const toujoursIci = ecranCourant();
   chargement();
-  let ref, a = jourGarde(date);
+  let ref, d;
   try {
     ref = await referentiels();
-    if (!a) { a = await appel('accueil', { date }); a._recu = Date.now(); garderJour(a); }
-  } catch (err) { if (toujoursIci()) erreurEcran(err); return; }
+    d = await appel('equipe', auNomDe ? { date, auNomDe } : { date });
+  } catch (err) { if (toujoursIci()) erreurEcran(err, "L'ajout d'un intérimaire a besoin du réseau."); return; }
   if (!toujoursIci()) return;
-  const e = etatInitial(date, null, a.bloc);
+  const possibles = libellesChantiers(d.bloc);
+  const existant = libelle ? d.membres.find(m => m.interimaire && m.personne === libelle) : null;
+  if (libelle && !existant) { toast(`${libelle} introuvable ce jour-là.`); return aller(auNomDe ? apresCorrectionBureau(date) : '/equipe/' + date); }
+  const e = etatInitial(date, existant ? existant.journee : null, null);
+  if (!existant) {
+    // Rien de coché par défaut s'il y a plusieurs chantiers : le chef choisit.
+    e.chantiers = possibles.length === 1 ? [possibles[0]] : [];
+    e.lieuEmbauche = e.chantiers[0] || '';
+  } else {
+    e.chantiers = e.chantiers.filter(c => possibles.includes(c));
+  }
+  const retour = () => (auNomDe ? apresCorrectionBureau(date) : '/equipe/' + date);
   const dessiner = () => {
     const y = window.scrollY;
     APP().innerHTML = `
       <div class="entete">
         <button class="retour" type="button" aria-label="Retour" onclick="history.back()">${ICONES.retour}</button>
-        <div><h1>Journée d'un intérimaire</h1><p class="discret">${esc(dateLongue(date))} — tu la saisis et la valides pour lui</p></div>
+        <div><h1>${existant ? esc(libelle) : "Journée d'un intérimaire"}</h1>
+          <p class="discret">${esc(dateLongue(date))} — ${auNomDe ? `équipe de ${esc(auNomDe)}` : 'tu la saisis et la valides pour lui'}</p></div>
       </div>
-      ${formulaireJournee(e, ref, true)}
+      ${formulaireJournee(e, ref, true, { chantiersPossibles: possibles, nomVerrouille: !!existant })}
       <div class="pied"><button class="btn btn-principal" type="button" id="envoyer">Enregistrer sa journée</button></div>`;
     brancherFormulaire(e, dessiner);
     $('#envoyer').onclick = async () => {
@@ -1389,10 +1433,11 @@ ROUTES.interimaire = async function (date) {
       if (probleme) { $('#erreur').textContent = probleme; $('#erreur').scrollIntoView({ block: 'center' }); return; }
       const bouton = $('#envoyer'); bouton.disabled = true; bouton.textContent = 'Envoi…';
       try {
-        const r = await envoyer('enregistrer_interimaire', donneesJournee(e), `Intérimaire ${e.nomInterimaire}`);
+        const donnees = Object.assign(donneesJournee(e), auNomDe ? { auNomDe } : {}, existant ? { correction: true } : {});
+        const r = await envoyer('enregistrer_interimaire', donnees, `Intérimaire ${e.nomInterimaire}`);
         oublierJour(date);
         toast(r.enAttente ? 'Gardée, partira avec le réseau.' : 'Journée enregistrée.');
-        aller('/equipe/' + date);
+        aller(retour());
       } catch (err) {
         bouton.disabled = false; bouton.textContent = 'Enregistrer sa journée';
         $('#erreur').textContent = err.message;
@@ -1456,7 +1501,7 @@ ROUTES.bureau = async function (date) {
         ${pointsDe(x.personne)}
         ${x.exportee ? '<p class="discret">Déjà envoyée au Suivi RH.</p>' : `
           <div class="duo">
-            <button class="btn btn-clair btn-petit" type="button" data-modifier="${esc(x.personne)}">${j ? 'Corriger' : 'Saisir'}</button>
+            <button class="btn btn-clair btn-petit" type="button" ${x.interimaire ? `data-modifier-interim="${esc(x.personne)}" data-chef="${esc(x.responsable || '')}"` : `data-modifier="${esc(x.personne)}"`}>${j ? 'Corriger' : 'Saisir'}</button>
             ${!j ? ''
               : (j.statut === 'SAISIE' || j.statut === 'SIGNALEE')
                 ? `<button class="btn btn-vert btn-petit" type="button" data-valider-chef="${esc(x.personne)}">Valider</button>`
@@ -1487,6 +1532,7 @@ ROUTES.bureau = async function (date) {
         <button class="btn btn-clair btn-petit" type="button" onclick="aller('/rapport/${date}/${encodeURIComponent(c.responsable || '')}')">
           ${c.rapport.envoye ? `Rapport : ${esc(c.rapport.restaurant || 'sans restaurant')}, ${esc(String(c.rapport.repasPayes))} repas, ${c.rapport.nbBl} BL` : 'Remplir le rapport'}</button>
         ${prets.length ? `<button class="btn btn-principal btn-petit" type="button" data-chantier="${esc(prets.join('|'))}">Tout le chantier bon pour la paie (${prets.length})</button>` : ''}
+        ${c.responsable ? `<button class="btn btn-ajout btn-petit" type="button" data-ajout-interim="${esc(c.responsable)}">${ICONES.plus} Ajouter un intérimaire</button>` : ''}
       </section>`;
   };
 
@@ -1530,6 +1576,8 @@ ROUTES.bureau = async function (date) {
       </div>`;
 
     $$('[data-modifier]').forEach(b => b.onclick = () => aller(`/bureau-journee/${date}/${encodeURIComponent(b.dataset.modifier)}`));
+    $$('[data-ajout-interim]').forEach(b => b.onclick = () => aller(`/interimaire/${date}/${encodeURIComponent(b.dataset.ajoutInterim)}`));
+    $$('[data-modifier-interim]').forEach(b => b.onclick = () => aller(`/interimaire/${date}/${encodeURIComponent(b.dataset.chef || '-')}/${encodeURIComponent(b.dataset.modifierInterim)}`));
     $$('[data-valider-chef]').forEach(b => b.onclick = () => agir({ date, quoi: 'CHEF', personnes: [b.dataset.validerChef] }));
     $$('[data-bureau]').forEach(b => b.onclick = () => agir({ date, quoi: 'BUREAU', valeur: b.dataset.valeur === 'oui', personnes: [b.dataset.bureau] }));
     $$('[data-chantier]').forEach(b => b.onclick = () => agir({ date, quoi: 'BUREAU', valeur: true, personnes: b.dataset.chantier.split('|') }));
