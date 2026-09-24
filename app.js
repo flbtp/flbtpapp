@@ -12,7 +12,7 @@
  * Numéro affiché en bas de l'accueil et de l'écran de connexion.
  * À augmenter à chaque dépôt de nouveaux fichiers sur GitHub : c'est le seul numéro à changer.
  */
-const VERSION_APPLI = '24';
+const VERSION_APPLI = '25';
 
 // ---------------------------------------------------------------------------
 // Petits outils
@@ -143,7 +143,10 @@ async function unEssai(action, donnees, idEnvoi, essai) {
       signal: ctrl.signal,
     });
     if (!rep.ok) {
-      const err = new HorsReseau(`Le serveur a renvoyé une erreur ${rep.status}.`);
+      // Le serveur peut expliquer son refus (503 : Google saturé) : on garde son message s'il y en a un.
+      let explication = '';
+      try { explication = (await rep.clone().json()).erreur || ''; } catch (e) { /* page d'erreur, pas du JSON */ }
+      const err = new HorsReseau(explication || `Le serveur a renvoyé une erreur ${rep.status}.`);
       err.detail = `${rep.status} sur ${hote(rep.url)}`;
       err.relancable = rep.status === 404 || rep.status === 429 || rep.status >= 500;
       throw err;
@@ -519,7 +522,7 @@ function dessinerAccueil(a, session) {
   let action;
   if (!j) action = `<button class="btn btn-principal" type="button" onclick="aller('/saisie/${a.date}')">Saisir ma journée</button>`;
   else if (j.enAttente) action = `<div class="alerte jaune">${ICONES.horloge}<span>Journée gardée sur ton téléphone : ${esc(j.hEmbauche)}–${esc(j.hPause)} · ${esc(j.hReprise)}–${esc(j.hDebauche)}. Elle partira dès que possible.</span></div>`;
-  else if (j.modifiable) action = `<div class="alerte vert">${ICONES.ok}<span>Journée envoyée : ${esc(j.hEmbauche)}–${esc(j.hPause)} · ${esc(j.hReprise)}–${esc(j.hDebauche)}</span></div>
+  else if (j.modifiable) action = `<div class="alerte vert">${ICONES.ok}<span>${j.statut === 'VALIDEE_CHEF' ? 'Journée validée' : 'Journée envoyée'} : ${esc(j.hEmbauche)}–${esc(j.hPause)} · ${esc(j.hReprise)}–${esc(j.hDebauche)}</span></div>
     <button class="btn btn-clair btn-petit" type="button" onclick="aller('/saisie/${a.date}')">Corriger ma journée</button>`;
   else action = `<div class="alerte vert">${ICONES.ok}<span>Journée validée. Pour une correction, vois avec ton chef ou le bureau.</span></div>`;
 
@@ -550,12 +553,10 @@ function dessinerAccueil(a, session) {
         <div class="bloc-titre">Prévu au planning</div>
         <div>${libellesChantiers(bloc).map(c => `<div class="chantier">${esc(nomCourt(c))}</div>`).join('')}</div>
         ${bloc.taches ? `<div class="sep taches-jour"><span class="sous">Tâches du jour</span><p class="a-faire">${esc(bloc.taches)}</p></div>` : ''}
-        <div class="pastilles"><span class="pastille">Chef : ${esc(bloc.responsable)}</span></div>
-
         <details class="sep depliant">
           <summary>Équipe (${bloc.equipe.length})</summary>
           ${bloc.equipe.map(n => `<div class="equipier">
-            <span class="qui">${esc(n)}${n === session.personne ? ' (toi)' : ''}</span>
+            <span class="qui">${esc(n)}${n === bloc.responsable ? ' <span class="discret">(chef)</span>' : ''}</span>
             <span class="quoi"></span>
           </div>`).join('')}
         </details>
@@ -571,7 +572,8 @@ function dessinerAccueil(a, session) {
       <div class="semaine">
         ${a.semaine.map(s => {
           const [lib, cls] = LIBELLES_STATUT[s.statut] || ['—', ''];
-          const cliquable = ['NON_SAISIE', 'SIGNALEE', 'SAISIE'].includes(s.statut);
+          // Une journée validée d'office (celle du chef) reste corrigeable : le serveur le dit avec « modifiable ».
+          const cliquable = ['NON_SAISIE', 'SIGNALEE', 'SAISIE'].includes(s.statut) || s.modifiable === true;
           return `<button type="button" class="jour ${cls}" ${cliquable ? `data-jour="${s.date}"` : 'disabled'} aria-label="${esc(dateLongue(s.date))} : ${esc(lib)}">
             <b>${esc(jourCourt(s.date))}</b>${cls === 'ok' ? ICONES.ok : '<span style="height:18px"></span>'}<small>${esc(lib)}</small></button>`;
         }).join('')}
@@ -887,7 +889,8 @@ ROUTES.saisie = async function (date) {
     const bouton = $('#envoyer'); bouton.disabled = true; bouton.textContent = 'Envoi…';
     try {
       const r = await envoyer('enregistrer_journee', donneesJournee(e), `Journée du ${dateLongue(date)}`);
-      stock.ecrire('dernierEnvoi', { etat: e, enAttente: !!r.enAttente });
+      stock.ecrire('dernierEnvoi', { etat: e, enAttente: !!r.enAttente,
+        valideeDOffice: !!(r.reponse && r.reponse.journee && r.reponse.journee.statut === 'VALIDEE_CHEF') });
       memoriserJournee(date, e, r);
       aller('/envoye');
     } catch (err) {
@@ -913,8 +916,17 @@ function memoriserJournee(date, e, r) {
 
   const acc = stock.lire('accueil');
   if (acc) {
-    if (acc.date === date) acc.journee = journee;
-    acc.semaine = (acc.semaine || []).map(s => (s.date === date ? { ...s, statut: 'SAISIE' } : s));
+    if (acc.date === date) {
+      acc.journee = journee;
+      // Le chef qui saisit sa journée : elle ne manque plus, et elle est validée d'office.
+      const moi = (stock.lire('session') || {}).personne;
+      if (acc.chef && acc.chef.manquants.includes(moi)) {
+        acc.chef.manquants = acc.chef.manquants.filter(n => n !== moi);
+        if (journee.statut === 'VALIDEE_CHEF') acc.chef.validees += 1;
+      }
+    }
+    acc.semaine = (acc.semaine || []).map(s => (s.date === date
+      ? { ...s, statut: journee.statut || 'SAISIE', modifiable: journee.modifiable !== false } : s));
     stock.ecrire('accueil', acc);
   }
 }
@@ -933,7 +945,7 @@ ROUTES.envoye = function () {
       <div class="rond ${d.enAttente ? '' : 'vert'}">${d.enAttente ? ICONES.horsReseau : ICONES.ok.replace(/18/g, '36')}</div>
       <h1>${d.enAttente ? 'Journée gardée sur ton téléphone' : 'Journée envoyée'}</h1>
       <p class="discret">${d.enAttente ? "Pas de réseau pour l'instant. Elle partira toute seule dès que le téléphone capte. Tu n'as rien à refaire."
-        : 'Ton chef la validera ce soir.'}</p>
+        : d.valideeDOffice ? "Tu es le chef : elle est validée d'office." : 'Ton chef la validera ce soir.'}</p>
     </div>
     <section class="bloc">
       <div class="resume"><span>Jour</span><span>${esc(dateLongue(e.date))}</span></div>
@@ -1172,7 +1184,7 @@ ROUTES.equipe = async function (date) {
   const carte = m => {
     const j = m.journee;
     if (!j && m.estMoi) return `
-      <section class="bloc"><div class="ligne-tete"><span>${esc(m.personne)} <span class="discret">(toi)</span></span><span class="pastille rouge">Pas saisie</span></div>
+      <section class="bloc"><div class="ligne-tete"><span>${esc(m.personne)} <span class="discret">(chef)</span></span><span class="pastille rouge">Pas saisie</span></div>
         <p class="discret">Ta propre journée n'est pas encore saisie.</p>
         <button class="btn btn-principal btn-petit" type="button" onclick="aller('/saisie/${date}')">Saisir ma journée</button></section>`;
     if (!j) return `
@@ -1183,13 +1195,15 @@ ROUTES.equipe = async function (date) {
     const aValider = aValiderStatut(j.statut);
     return `
       <section class="bloc" ${aValider ? 'style="border:2px solid var(--jaune)"' : ''}>
-        <div class="ligne-tete"><span>${esc(m.personne)}${m.estMoi ? ' <span class="discret">(toi)</span>' : ''}${m.interimaire ? ' <span class="discret">(intérim)</span>' : ''}</span>
+        <div class="ligne-tete"><span>${esc(m.personne)}${m.estMoi ? ' <span class="discret">(chef)</span>' : ''}${m.interimaire ? ' <span class="discret">(intérim)</span>' : ''}</span>
           <span class="pastille ${pastille[1]}">${esc(pastille[0])}</span></div>
         <p>${esc(j.hEmbauche)}–${esc(j.hPause)} · ${esc(j.hReprise)}–${esc(j.hDebauche)} · <b>${esc(j.total)}</b></p>
         <p class="discret">${esc([j.trajet, j.tachesSuppMin ? `${j.tachesSuppMin} min ${j.tachesSupp}` : '', { AUCUN: 'Pas de repas', PANIER: 'Panier', RESTAURANT: 'Restaurant' }[j.repas]].filter(Boolean).join(' — '))}</p>
 
-        ${!aValider && j.statut === 'VALIDEE_CHEF' ? `
-          <button class="btn btn-clair btn-petit" type="button" data-devalider="${esc(m.personne)}">Dévalider pour correction</button>` : ''}
+        ${!aValider && j.statut === 'VALIDEE_CHEF' ? (m.estMoi
+          // Sa propre journée, validée d'office : il la corrige directement, elle reste validée.
+          ? `<button class="btn btn-clair btn-petit" type="button" onclick="aller('/saisie/${date}')">Corriger ma journée</button>`
+          : `<button class="btn btn-clair btn-petit" type="button" data-devalider="${esc(m.personne)}">Dévalider pour correction</button>`) : ''}
         ${aValider ? (m.estMoi
             ? `<div class="duo"><button class="btn btn-clair btn-petit" type="button" onclick="aller('/saisie/${date}')">Corriger</button>
             <button class="btn btn-vert btn-petit" type="button" data-valider="${esc(m.personne)}">Valider ma journée</button></div>`
