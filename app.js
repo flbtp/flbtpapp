@@ -12,7 +12,7 @@
  * Numéro affiché en bas de l'accueil et de l'écran de connexion.
  * À augmenter à chaque dépôt de nouveaux fichiers sur GitHub : c'est le seul numéro à changer.
  */
-const VERSION_APPLI = '23';
+const VERSION_APPLI = '24';
 
 // ---------------------------------------------------------------------------
 // Petits outils
@@ -456,7 +456,7 @@ function libellesChantiers(bloc) {
 }
 
 const LIBELLES_STATUT = {
-  SAISIE: ['Envoyée', 'saisie'], SIGNALEE: ['À corriger', 'signalee'], VALIDEE_CHEF: ['Validée', 'ok'],
+  SAISIE: ['Envoyée', 'saisie'], SIGNALEE: ['Envoyée', 'saisie'], VALIDEE_CHEF: ['Validée', 'ok'],
   VALIDEE_BUREAU: ['Validée', 'ok'], EXPORTEE: ['Validée', 'ok'], NON_SAISIE: ['À saisir', 'a-faire'], A_VENIR: ['—', ''],
 };
 
@@ -518,8 +518,6 @@ function dessinerAccueil(a, session) {
 
   let action;
   if (!j) action = `<button class="btn btn-principal" type="button" onclick="aller('/saisie/${a.date}')">Saisir ma journée</button>`;
-  else if (j.statut === 'SIGNALEE') action = `<div class="alerte rouge">${ICONES.attention}<span><b>Ton chef demande une correction :</b> ${esc(j.signalement)}</span></div>
-    <button class="btn btn-principal" type="button" onclick="aller('/saisie/${a.date}')">Corriger ma journée</button>`;
   else if (j.enAttente) action = `<div class="alerte jaune">${ICONES.horloge}<span>Journée gardée sur ton téléphone : ${esc(j.hEmbauche)}–${esc(j.hPause)} · ${esc(j.hReprise)}–${esc(j.hDebauche)}. Elle partira dès que possible.</span></div>`;
   else if (j.modifiable) action = `<div class="alerte vert">${ICONES.ok}<span>Journée envoyée : ${esc(j.hEmbauche)}–${esc(j.hPause)} · ${esc(j.hReprise)}–${esc(j.hDebauche)}</span></div>
     <button class="btn btn-clair btn-petit" type="button" onclick="aller('/saisie/${a.date}')">Corriger ma journée</button>`;
@@ -550,8 +548,8 @@ function dessinerAccueil(a, session) {
     ${bloc ? `
       <section class="bloc">
         <div class="bloc-titre">Prévu au planning</div>
-        <div>${libellesChantiers(bloc).map(c => `<div class="chantier">${esc(nomCourt(c))}</div>`).join('')}
-          ${bloc.taches ? `<p class="a-faire">${esc(bloc.taches)}</p>` : ''}</div>
+        <div>${libellesChantiers(bloc).map(c => `<div class="chantier">${esc(nomCourt(c))}</div>`).join('')}</div>
+        ${bloc.taches ? `<div class="sep taches-jour"><span class="sous">Tâches du jour</span><p class="a-faire">${esc(bloc.taches)}</p></div>` : ''}
         <div class="pastilles"><span class="pastille">Chef : ${esc(bloc.responsable)}</span></div>
 
         <details class="sep depliant">
@@ -877,7 +875,6 @@ ROUTES.saisie = async function (date) {
         <button class="retour" type="button" aria-label="Retour" onclick="history.back()">${ICONES.retour}</button>
         <div><h1>Ma journée</h1><p class="discret">${esc(dateLongue(date))}</p></div>
       </div>
-      ${a && a.journee && a.journee.statut === 'SIGNALEE' ? `<div class="alerte rouge">${ICONES.attention}<span><b>À corriger :</b> ${esc(a.journee.signalement)}</span></div>` : ''}
       ${formulaireJournee(e, ref, false)}
       <div class="pied"><button class="btn btn-principal" type="button" id="envoyer">Envoyer ma journée</button></div>`;
     brancherFormulaire(e, dessiner);
@@ -1170,7 +1167,7 @@ ROUTES.equipe = async function (date) {
   let d;
   try { d = await appel('equipe', { date }); } catch (err) { if (toujoursIci()) erreurEcran(err, 'La validation a besoin du réseau.'); return; }
   if (!toujoursIci()) return;
-  const signalement = {};
+  const aValiderStatut = s => s === 'SAISIE' || s === 'SIGNALEE';
 
   const carte = m => {
     const j = m.journee;
@@ -1181,9 +1178,9 @@ ROUTES.equipe = async function (date) {
     if (!j) return `
       <section class="bloc"><div class="ligne-tete"><span>${esc(m.personne)}</span><span class="pastille rouge">Pas saisie</span></div>
         <p class="discret">Prévu au planning sur ce chantier, aucune journée reçue.</p></section>`;
-    const pastille = { SAISIE: ['À valider', 'attente'], SIGNALEE: ['Signalée', 'rouge'], VALIDEE_CHEF: ['Validée', 'vert'],
+    const pastille = { SAISIE: ['À valider', 'attente'], SIGNALEE: ['À valider', 'attente'], VALIDEE_CHEF: ['Validée', 'vert'],
       VALIDEE_BUREAU: ['Validée bureau', 'vert'], EXPORTEE: ['Validée bureau', 'vert'] }[j.statut] || [j.statut, ''];
-    const aValider = j.statut === 'SAISIE';
+    const aValider = aValiderStatut(j.statut);
     return `
       <section class="bloc" ${aValider ? 'style="border:2px solid var(--jaune)"' : ''}>
         <div class="ligne-tete"><span>${esc(m.personne)}${m.estMoi ? ' <span class="discret">(toi)</span>' : ''}${m.interimaire ? ' <span class="discret">(intérim)</span>' : ''}</span>
@@ -1191,23 +1188,18 @@ ROUTES.equipe = async function (date) {
         <p>${esc(j.hEmbauche)}–${esc(j.hPause)} · ${esc(j.hReprise)}–${esc(j.hDebauche)} · <b>${esc(j.total)}</b></p>
         <p class="discret">${esc([j.trajet, j.tachesSuppMin ? `${j.tachesSuppMin} min ${j.tachesSupp}` : '', { AUCUN: 'Pas de repas', PANIER: 'Panier', RESTAURANT: 'Restaurant' }[j.repas]].filter(Boolean).join(' — '))}</p>
 
-        ${j.statut === 'SIGNALEE' ? `<p class="discret">Motif : ${esc(j.signalement)}</p>` : ''}
-        ${!aValider && j.statut === 'VALIDEE_CHEF' && j.statut !== 'EXPORTEE' ? `
+        ${!aValider && j.statut === 'VALIDEE_CHEF' ? `
           <button class="btn btn-clair btn-petit" type="button" data-devalider="${esc(m.personne)}">Dévalider pour correction</button>` : ''}
-        ${aValider ? (signalement[m.personne] !== undefined ? `
-          <div class="champ"><label for="motif-${esc(m.personne)}" class="sous">Qu'est-ce qui ne va pas ?</label>
-            <input type="text" id="motif-${esc(m.personne)}" value="${esc(signalement[m.personne])}" data-motif="${esc(m.personne)}" placeholder="Ex. débauche à 16 h 30, pas 17 h"></div>
-          <div class="duo"><button class="btn btn-clair btn-petit" type="button" data-annuler="${esc(m.personne)}">Annuler</button>
-            <button class="btn btn-rouge btn-petit" type="button" data-envoyer-signal="${esc(m.personne)}">Signaler</button></div>`
-          : (m.estMoi
-            ? `<button class="btn btn-vert btn-petit" type="button" data-valider="${esc(m.personne)}">Valider ma journée</button>`
-            : `<div class="duo"><button class="btn btn-rouge btn-petit" type="button" data-signaler="${esc(m.personne)}">Signaler</button>
-            <button class="btn btn-vert btn-petit" type="button" data-valider="${esc(m.personne)}">Valider</button></div>`)) : ''}
+        ${aValider ? (m.estMoi
+            ? `<div class="duo"><button class="btn btn-clair btn-petit" type="button" onclick="aller('/saisie/${date}')">Corriger</button>
+            <button class="btn btn-vert btn-petit" type="button" data-valider="${esc(m.personne)}">Valider ma journée</button></div>`
+            : `<div class="duo"><button class="btn btn-clair btn-petit" type="button" data-corriger="${esc(m.personne)}">Corriger</button>
+            <button class="btn btn-vert btn-petit" type="button" data-valider="${esc(m.personne)}">Valider</button></div>`) : ''}
       </section>`;
   };
 
   const dessiner = () => {
-    const aValider = d.membres.filter(m => m.journee && m.journee.statut === 'SAISIE');
+    const aValider = d.membres.filter(m => m.journee && aValiderStatut(m.journee.statut));
     APP().innerHTML = `
       <div class="entete">
         <button class="retour" type="button" aria-label="Retour" onclick="aller('/accueil')">${ICONES.retour}</button>
@@ -1225,35 +1217,80 @@ ROUTES.equipe = async function (date) {
 
     $$('[data-valider]').forEach(b => b.onclick = () => decider([b.dataset.valider], 'VALIDER'));
     $$('[data-devalider]').forEach(b => b.onclick = () => decider([b.dataset.devalider], 'DEVALIDER'));
-    $$('[data-signaler]').forEach(b => b.onclick = () => { signalement[b.dataset.signaler] = ''; dessiner(); });
-    $$('[data-annuler]').forEach(b => b.onclick = () => { delete signalement[b.dataset.annuler]; dessiner(); });
-    $$('[data-motif]').forEach(i => i.oninput = () => { signalement[i.dataset.motif] = i.value; });
-    $$('[data-envoyer-signal]').forEach(b => b.onclick = () => {
-      const p = b.dataset.envoyerSignal;
-      if (!String(signalement[p] || '').trim()) { $('#erreur').textContent = 'Indique ce qui ne va pas.'; return; }
-      decider([p], 'SIGNALER', signalement[p].trim());
-    });
+    $$('[data-corriger]').forEach(b => b.onclick = () => aller(`/chef-journee/${date}/${encodeURIComponent(b.dataset.corriger)}`));
     $('#toutValider').onclick = () => decider(aValider.map(m => m.personne), 'VALIDER');
   };
 
-  const decider = async (personnes, decision, motif) => {
+  const decider = async (personnes, decision) => {
     $$('button').forEach(b => { b.disabled = true; });
     try {
-      for (const p of personnes) await appel('valider', { date, personne: p, decision, motif });
-      delete signalement[personnes[0]];
+      for (const p of personnes) await appel('valider', { date, personne: p, decision });
       d = await appel('equipe', { date });
       majChef(date, {
-        aValider: d.membres.filter(m => m.journee && m.journee.statut === 'SAISIE').length,
+        aValider: d.membres.filter(m => m.journee && aValiderStatut(m.journee.statut)).length,
         manquants: d.manquants,
-        validees: d.membres.filter(m => m.journee && m.journee.statut !== 'SAISIE').length,
+        validees: d.membres.filter(m => m.journee && !aValiderStatut(m.journee.statut)).length,
       });
       oublierJour(date);
       toast({ VALIDER: personnes.length > 1 ? 'Journées validées.' : 'Journée validée.',
-        DEVALIDER: 'Journée rouverte : elle peut être corrigée.', SIGNALER: 'Signalement envoyé.' }[decision]);
+        DEVALIDER: 'Journée rouverte : touche « Corriger » pour la modifier.' }[decision]);
     } catch (err) {
       toast(err instanceof HorsReseau ? 'Pas de réseau : réessaie quand ça capte.' : err.message);
     }
     if (toujoursIci()) dessiner();
+  };
+  dessiner();
+};
+
+// ---------------------------------------------------------------------------
+// Écran : le chef corrige la journée d'un gars de son équipe (après l'avoir dévalidée)
+// ---------------------------------------------------------------------------
+
+ROUTES['chef-journee'] = async function (param) {
+  const toujoursIci = ecranCourant();
+  const [date, personneEncodee] = String(param || '').split('/');
+  const personne = decodeURIComponent(personneEncodee || '');
+  chargement();
+  let ref, d;
+  try {
+    ref = await referentiels();
+    d = await appel('equipe', { date });
+  } catch (err) { if (toujoursIci()) erreurEcran(err, 'La correction a besoin du réseau.'); return; }
+  if (!toujoursIci()) return;
+
+  const m = d.membres.find(x => x.personne === personne);
+  if (!m || !m.journee) { toast(`${personne} n'a pas de journée à corriger.`); return aller('/equipe/' + date); }
+  if (m.journee.statut !== 'SAISIE' && m.journee.statut !== 'SIGNALEE') {
+    toast("Journée validée : dévalide-la d'abord pour la corriger."); return aller('/equipe/' + date);
+  }
+  const e = etatInitial(date, m.journee, d.bloc);
+
+  const dessiner = () => {
+    const y = window.scrollY;
+    APP().innerHTML = `
+      <div class="entete">
+        <button class="retour" type="button" aria-label="Retour" onclick="aller('/equipe/${date}')">${ICONES.retour}</button>
+        <div><h1>${esc(personne)}</h1><p class="discret">${esc(dateLongue(date))} — correction par le chef</p></div>
+      </div>
+      <div class="alerte jaune">${ICONES.attention}<span>Une fois enregistrée, la journée est validée à ton nom.</span></div>
+      ${formulaireJournee(e, ref, false)}
+      <div class="pied"><button class="btn btn-principal" type="button" id="envoyer">Enregistrer et valider</button></div>`;
+    brancherFormulaire(e, dessiner);
+    $('#envoyer').onclick = async () => {
+      const probleme = controler(e, false);
+      if (probleme) { $('#erreur').textContent = probleme; $('#erreur').scrollIntoView({ block: 'center' }); return; }
+      const b = $('#envoyer'); b.disabled = true; b.textContent = 'Enregistrement…';
+      try {
+        await appel('chef_journee', Object.assign({ personne }, donneesJournee(e)));
+        oublierJour(date);
+        toast('Journée corrigée et validée.');
+        aller('/equipe/' + date);
+      } catch (err) {
+        b.disabled = false; b.textContent = 'Enregistrer et valider';
+        $('#erreur').textContent = err instanceof HorsReseau ? 'Pas de réseau : réessaie quand ça capte.' : err.message;
+      }
+    };
+    window.scrollTo(0, y);
   };
   dessiner();
 };
@@ -1307,7 +1344,7 @@ ROUTES.interimaire = async function (date) {
 // ---------------------------------------------------------------------------
 
 const ETIQUETTES = {
-  SAISIE: ['Saisie', 'attente'], SIGNALEE: ['Signalée', 'rouge'], VALIDEE_CHEF: ['Validée chef', 'vert'],
+  SAISIE: ['Saisie', 'attente'], SIGNALEE: ['Saisie', 'attente'], VALIDEE_CHEF: ['Validée chef', 'vert'],
   VALIDEE_BUREAU: ['Validée bureau', 'vert'], EXPORTEE: ['Envoyée en paie', 'vert'],
 };
 
