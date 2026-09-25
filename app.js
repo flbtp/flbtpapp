@@ -12,7 +12,7 @@
  * Numéro affiché en bas de l'accueil et de l'écran de connexion.
  * À augmenter à chaque dépôt de nouveaux fichiers sur GitHub : c'est le seul numéro à changer.
  */
-const VERSION_APPLI = '37';
+const VERSION_APPLI = '38';
 
 // ---------------------------------------------------------------------------
 // Petits outils
@@ -729,7 +729,8 @@ function formulaireJournee(e, ref, interimaire, options = {}) {
     ${interimaire ? `
     <section class="bloc">
       <div class="champ"><label for="nomInterimaire">Nom de l'intérimaire</label>
-        <input id="nomInterimaire" type="text" autocomplete="off" value="${esc(e.nomInterimaire)}" data-champ="nomInterimaire" ${options.nomVerrouille ? 'readonly' : ''}></div>
+        <input id="nomInterimaire" type="text" autocomplete="off" value="${esc(e.nomInterimaire)}" data-champ="nomInterimaire" ${options.nomVerrouille ? 'readonly' : ''}>
+        <p class="erreur-champ" id="avertNom" role="alert"></p></div>
       <div class="champ"><label for="agence">Agence</label>
         <input id="agence" type="text" autocomplete="off" value="${esc(e.agence)}" data-champ="agence" placeholder="Randstad, Adéquat, Temporis…"></div>
     </section>` : ''}
@@ -863,6 +864,25 @@ function brancherFormulaire(e, redessiner) {
     if (e.lieuEmbauche === b.dataset.retirer) e.lieuEmbauche = e.chantiers[0] || '';
     redessiner();
   });
+}
+
+/** Même normalisation que le serveur (majuscules, sans accents ni ponctuation, ST → SAINT). */
+function normaliserNom(texte) {
+  const ABREV = { ST: 'SAINT', STE: 'SAINTE' };
+  return String(texte || '').toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^A-Z0-9 ]+/g, ' ').split(/\s+/).filter(Boolean).map(m => ABREV[m] || m).join(' ');
+}
+/**
+ * Intérimaire tapé qui est déjà dans PERSONNES (version 38) : pas de saisie libre, sinon doublon dans le Suivi RH.
+ * Le serveur refuse aussi ; ici on prévient dès la saisie du nom.
+ */
+function messageDejaPersonne(nom, pourBureau) {
+  const n = normaliserNom(nom);
+  const p = n && ((stock.lire('ref') || {}).personnesConnues || []).find(x => x.cles.includes(n));
+  if (!p) return '';
+  return p.actif
+    ? `${nom.trim()} est dans la liste des personnes (${p.libelle}) : utilise « ${pourBureau ? "Saisir pour quelqu'un" : 'Ajouter un gars'} ».`
+    : `${nom.trim()} est dans la liste des personnes (${p.libelle}) mais inactif : à réactiver dans PERSONNES, demande au bureau.`;
 }
 
 /** Mêmes règles que le serveur, pour prévenir avant l'envoi. */
@@ -1547,7 +1567,11 @@ ROUTES.interimaire = async function (param) {
       ${formulaireJournee(e, ref, true, { chantiersPossibles: possibles, nomVerrouille: !!existant })}
       <div class="pied"><button class="btn btn-principal" type="button" id="envoyer">Enregistrer sa journée</button></div>`;
     brancherFormulaire(e, dessiner);
+    const avertir = () => { const m = existant ? '' : messageDejaPersonne(e.nomInterimaire, !!auNomDe); $('#avertNom').textContent = m; return m; };
+    $('#nomInterimaire').addEventListener('input', avertir); avertir();
     $('#envoyer').onclick = async () => {
+      const deja = avertir();
+      if (deja) { $('#nomInterimaire').scrollIntoView({ block: 'center' }); return; }
       const probleme = controler(e, true);
       if (probleme) { $('#erreur').textContent = probleme; $('#erreur').scrollIntoView({ block: 'center' }); return; }
       const bouton = $('#envoyer'); bouton.disabled = true; bouton.textContent = 'Envoi…';
@@ -1671,7 +1695,7 @@ ROUTES.bureau = async function (date) {
     if (j.statut === 'SAISIE' || j.statut === 'SIGNALEE') return ['traiter', 'À valider'];
     if (pointsDe(x.personne).some(c => c.cat === 'corriger')) return ['traiter', 'À corriger'];
     if (e === 'ENVOI') return ['envoi', "Dans l'envoi"];
-    return ['validee', 'Validée chef'];
+    return ['validee', j.parBureau ? 'Validée bureau' : 'Validée chef'];
   };
 
   const carte = (x, c) => {
@@ -1711,6 +1735,7 @@ ROUTES.bureau = async function (date) {
                <span class="discret">— ${esc([j.trajet, { AUCUN: 'sans repas', PANIER: 'panier', RESTAURANT: 'restaurant' }[j.repas], j.zone ? 'zone ' + j.zone : 'pas de zone'].filter(Boolean).join(', '))}</span>
                ${j.repartition ? `<br><span class="discret">Heures : ${esc(j.repartition.split(' ; ').map(nomCourt).join(' ; '))}</span>` : ''}</p>`
           : x.justification ? `<p class="heures">${x.justification.type === 'JOUR_NON_TRAVAILLE' ? 'Jour chômé' : 'Justifiée'} : ${esc(x.justification.motif)}</p>` : ''}
+        ${x.sansOngletRh ? '<p class="discret mention-rh">Pas d\'onglet RH : heures non reportées dans le Suivi RH</p>' : ''}
         ${textePoints(x.personne)}
         ${actions ? `<div class="actions">${actions}</div>` : ''}
       </div>`;
