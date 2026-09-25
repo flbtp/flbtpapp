@@ -12,7 +12,7 @@
  * Numéro affiché en bas de l'accueil et de l'écran de connexion.
  * À augmenter à chaque dépôt de nouveaux fichiers sur GitHub : c'est le seul numéro à changer.
  */
-const VERSION_APPLI = '39';
+const VERSION_APPLI = '40';
 
 // ---------------------------------------------------------------------------
 // Petits outils
@@ -730,7 +730,7 @@ function formulaireJournee(e, ref, interimaire, options = {}) {
     <section class="bloc">
       <div class="champ"><label for="nomInterimaire">Nom de l'intérimaire</label>
         <input id="nomInterimaire" type="text" autocomplete="off" value="${esc(e.nomInterimaire)}" data-champ="nomInterimaire" ${options.nomVerrouille ? 'readonly' : ''}>
-        <p class="erreur-champ" id="avertNom" role="alert"></p></div>
+        <p class="erreur-champ" id="avertNom" role="alert"></p><p class="discret avert-proche" id="procheNom"></p></div>
       <div class="champ"><label for="agence">Agence</label>
         <input id="agence" type="text" autocomplete="off" value="${esc(e.agence)}" data-champ="agence" placeholder="Randstad, Adéquat, Temporis…"></div>
     </section>` : ''}
@@ -873,16 +873,46 @@ function normaliserNom(texte) {
     .replace(/[^A-Z0-9 ]+/g, ' ').split(/\s+/).filter(Boolean).map(m => ABREV[m] || m).join(' ');
 }
 /**
- * Intérimaire tapé qui est déjà dans PERSONNES (version 38) : pas de saisie libre, sinon doublon dans le Suivi RH.
- * Le serveur refuse aussi ; ici on prévient dès la saisie du nom.
+ * Intérimaire tapé qui est déjà dans PERSONNES : pas de saisie libre, sinon doublon dans le Suivi RH.
+ * Même règle que le serveur (version 40, mot à mot) : forme exacte (libellé, ancienne graphie, onglet RH), ou
+ * nom complet + prénom ou initiale, ou prénom complet + initiale du nom. Le serveur refuse aussi.
  */
+function correspondPersonne(p, texte) {
+  const n = normaliserNom(texte);
+  if (!n) return false;
+  if (!p.exactes) return (p.cles || []).includes(n);            // référentiels gardés d'avant la version 40
+  if (p.exactes.includes(n)) return true;
+  const mots = n.split(' '), nom = p.nom || [], prenom = p.prenom || [];
+  if (!nom.length) return false;
+  const initiale = (m, liste) => m.length === 1 && liste.some(x => x[0] === m);
+  if (nom.every(m => mots.includes(m))) return mots.filter(m => !nom.includes(m)).every(m => prenom.includes(m) || initiale(m, prenom));
+  if (prenom.length && prenom.every(m => mots.includes(m))) {
+    const reste = mots.filter(m => !prenom.includes(m));
+    return reste.length > 0 && reste.every(m => initiale(m, nom));
+  }
+  return false;
+}
+function ecart(a, b) {                          // nombre de lettres à changer pour passer de a à b
+  const d = Array.from({ length: a.length + 1 }, (_, i) => [i, ...Array(b.length).fill(0)]);
+  for (let j = 1; j <= b.length; j++) d[0][j] = j;
+  for (let i = 1; i <= a.length; i++) for (let j = 1; j <= b.length; j++) {
+    d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+  }
+  return d[a.length][b.length];
+}
 function messageDejaPersonne(nom, pourBureau) {
-  const n = normaliserNom(nom);
-  const p = n && ((stock.lire('ref') || {}).personnesConnues || []).find(x => x.cles.includes(n));
+  const personnes = (stock.lire('ref') || {}).personnesConnues || [];
+  const p = personnes.find(x => correspondPersonne(x, nom));
   if (!p) return '';
   return p.actif
     ? `${nom.trim()} est dans la liste des personnes (${p.libelle}) : utilise « ${pourBureau ? "Saisir pour quelqu'un" : 'Ajouter un gars'} ».`
     : `${nom.trim()} est dans la liste des personnes (${p.libelle}) mais inactif : à réactiver dans PERSONNES, demande au bureau.`;
+}
+/** Nom proche d'un nom de famille connu (une lettre près, noms de 4 lettres et plus) : avertir sans bloquer. */
+function avertissementNomProche(nom) {
+  const mots = normaliserNom(nom).split(' ').filter(m => m.length >= 4);
+  const p = ((stock.lire('ref') || {}).personnesConnues || []).find(x => (x.nom || []).some(n => n.length >= 4 && mots.some(m => m !== n && ecart(m, n) <= 1)));
+  return p ? `Vouliez-vous dire ${p.libelle} (${(p.nom || []).join(' ')}) ? Si c'est bien lui, utilise « Ajouter un gars ». Sinon, tu peux continuer.` : '';
 }
 
 /** Mêmes règles que le serveur, pour prévenir avant l'envoi. */
@@ -1567,7 +1597,13 @@ ROUTES.interimaire = async function (param) {
       ${formulaireJournee(e, ref, true, { chantiersPossibles: possibles, nomVerrouille: !!existant })}
       <div class="pied"><button class="btn btn-principal" type="button" id="envoyer">Enregistrer sa journée</button></div>`;
     brancherFormulaire(e, dessiner);
-    const avertir = () => { const m = existant ? '' : messageDejaPersonne(e.nomInterimaire, !!auNomDe); $('#avertNom').textContent = m; return m; };
+    const avertir = () => {
+      const m = existant ? '' : messageDejaPersonne(e.nomInterimaire, !!auNomDe);
+      $('#avertNom').textContent = m;
+      // Faute de frappe probable : un simple avertissement, la saisie reste possible (version 40).
+      $('#procheNom').textContent = !existant && !m ? avertissementNomProche(e.nomInterimaire) : '';
+      return m;
+    };
     $('#nomInterimaire').addEventListener('input', avertir); avertir();
     $('#envoyer').onclick = async () => {
       const deja = avertir();
@@ -1761,7 +1797,6 @@ ROUTES.bureau = async function (date) {
             <select id="remp-${esc(c.responsable)}" data-remplacant="${esc(c.responsable)}" ${verrou() ? 'disabled' : ''}>${c.remplacant ? '' : '<option value="" selected disabled>Remplaçant à choisir…</option>'}${c.candidatsRemplacant.map(n => `<option ${n === c.remplacant ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select></div>`
           : '<p class="discret">Chef absent : personne de l\'équipe n\'a encore saisi sa journée, pas de remplaçant.</p>') : ''}
         ${(c.horsPlanning || []).map(h => `<p class="discret">+ ${esc(nomCourt(h.libelle))} : hors planning, déclaré par ${esc(h.declarePar.join(', '))}.</p>`).join('')}
-        ${manquantes ? `<p class="discret">${manquantes} sans saisie</p>` : ''}
         ${!montrerRapport ? '' : c.rapport.ecartRepas ? `<div class="alerte rouge">${ICONES.attention}<span><b>Repas :</b> ${esc(String(c.rapport.repasPayes))} payés au rapport, ${c.rapport.repasDeclares} déclarés par l'équipe.</span></div>`
           : (c.rapport.envoye ? `<p class="discret">Repas : ${esc(String(c.rapport.repasPayes))} payés, ${c.rapport.repasDeclares} déclarés.</p>` : '')}
         ${c.journees.map(x => carte(x, c)).join('')}
