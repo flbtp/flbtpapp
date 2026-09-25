@@ -1,5 +1,7 @@
 /* FLBTP — Ma journée. Reprend la maquette validée : fond sable, encre, jaune signalisation. */
 :root {
+  --bleu: #2F5E8C;           /* dans l'envoi en paie (version 35) */
+  --bleu-pale: #E1EAF3;
   --fond: #F3F0E8;
   --surface: #FFFFFF;
   --encre: #2B2A2B;          /* gris foncé du logo */
@@ -127,7 +129,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .clavier button.vide { background: transparent; }
 
 /* Semaine */
-.semaine { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
+.semaine { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 5px; }
 .jour { padding: 10px 0; border-radius: 10px; background: var(--creux); display: flex; flex-direction: column; align-items: center; gap: 4px; color: var(--gris); border: 2px solid transparent; font: inherit; cursor: default; }
 .jour b { font-size: 13px; }
 .jour small { font-size: 12px; }
@@ -283,3 +285,73 @@ button.compteur { cursor: pointer; }
 .jour.justifiee { background: var(--creux); color: var(--gris); }
 .mini-aide { font-size: 13px; margin-top: -12px; text-align: center; }
 [hidden] { display: none !important; }
+
+/* ------------------------------------------------------------------ version 35 */
+/* Semaine du lundi au dimanche : sept cases plus serrées. */
+.semaine .jour { padding: 8px 0; gap: 2px; }
+.semaine .jour small { font-size: 11px; }
+.jour.weekend { background: transparent; border: 2px dashed var(--trait); }
+.equipier.parti .qui { color: var(--gris); }
+
+/* Confirmation dans le style de l'appli (remplace la fenêtre du navigateur). */
+.voile { position: fixed; inset: 0; background: rgba(43, 42, 43, .45); display: grid; place-items: center; padding: 18px; z-index: 50; }
+.boite { background: var(--surface); border-radius: 16px; padding: 20px; width: min(420px, 100%); display: flex; flex-direction: column; gap: 14px; box-shadow: 0 10px 30px rgba(0,0,0,.25); }
+
+/* Écran bureau : la chaîne de paie par jour. */
+.chaine { display: grid; grid-template-columns: 1fr 14px 1fr 14px 1fr; align-items: stretch; }
+.chaine .fleche { display: grid; place-items: center; color: var(--gris); }
+.etape { border: none; border-radius: 12px; padding: 8px 4px 9px; text-align: center; font: inherit; background: var(--surface); color: var(--encre); cursor: pointer; }
+.etape b { display: block; font-family: var(--titre); font-size: 30px; line-height: 1; }
+.etape span { font-size: 12.5px; line-height: 1.15; display: block; color: var(--gris); }
+.etape.rouge { box-shadow: inset 0 0 0 2px var(--rouge); } .etape.rouge b { color: var(--rouge); }
+.etape.vert b { color: var(--vert); }
+.etape.bleu { background: var(--bleu); } .etape.bleu b, .etape.bleu span { color: #fff; }
+
+.bande-jours .regler { background: var(--rouge-pale); color: var(--rouge); }
+.bande-jours .acocher { background: var(--vert-pale); color: var(--vert); border-color: var(--vert); }
+.bande-jours .envoi { background: var(--bleu); color: #fff; } .bande-jours .envoi small { color: #dfe7f0; }
+.bande-jours .envoye { background: var(--encre); color: #fff; } .bande-jours .envoye small { color: #bbb; }
+.bande-jours .vide, .bande-jours .avenir, .bande-jours .en-cours { color: var(--gris); }
+.bande-jours .weekend { background: transparent; border: 2px dashed var(--trait); }
+.bande-jours .weekend.regler, .bande-jours .weekend.acocher, .bande-jours .weekend.envoi, .bande-jours .weekend.envoye { border-style: solid; }
+.bande-jours .badge { display: inline-block; min-width: 20px; padding: 0 5px; border-radius: 10px; background: var(--rouge); color: #fff; font-weight: 700; font-size: 12px; }
+.leg-bande { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 12.5px; color: var(--gris); justify-content: center; margin-top: -10px; }
+.leg-bande i { display: inline-block; width: 12px; height: 12px; border-radius: 3px; vertical-align: -1px; margin-right: 4px; }
+.leg-bande .l-regler { background: var(--rouge-pale); border: 1px solid var(--rouge); }
+.leg-bande .l-acocher { background: var(--vert-pale); border: 1px solid var(--vert); }
+.leg-bande .l-envoi { background: var(--bleu); } .leg-bande .l-envoye { background: var(--encre); }
+
+.bandeau-jour { border-radius: 14px; padding: 14px; display: flex; flex-direction: column; gap: 8px; background: var(--surface); border-left: 6px solid var(--trait); }
+.bandeau-jour h2 { font-size: 18px; }
+.bandeau-jour ul { margin: 0; padding-left: 18px; font-size: 14.5px; }
+.bandeau-jour.rouge { background: var(--rouge-pale); border-left-color: var(--rouge); }
+.bandeau-jour.vert { background: var(--vert-pale); border-left-color: var(--vert); }
+.bandeau-jour.bleu { background: var(--bleu-pale); border-left-color: var(--bleu); }
+.bandeau-jour.noir { border-left-color: var(--encre); }
+.bandeau-jour .btn[disabled] { background: var(--creux); color: var(--gris); }
+.alerte.bleu { background: var(--bleu-pale); color: var(--bleu); }
+.resume-ligne { display: flex; justify-content: space-between; gap: 8px; font-size: 14.5px; padding: 8px 10px; border-radius: 8px; border-left: 6px solid var(--trait); background: var(--fond); }
+.resume-ligne.bleu { border-left-color: var(--bleu); background: var(--bleu-pale); }
+.resume-ligne.vert { border-left-color: var(--vert); background: var(--vert-pale); }
+
+/* État d'une journée : bande de couleur à gauche + pastille pleine. */
+.ligne.e-traiter, .ligne.e-justifiee, .ligne.e-validee, .ligne.e-envoi, .ligne.e-envoyee { border-left: 6px solid transparent; padding-left: 10px; }
+.ligne.e-traiter { border-left-color: var(--rouge); background: #fbefec; }
+.ligne.e-justifiee { border-left-color: #a8a39a; background: var(--creux); color: var(--gris); }
+.ligne.e-validee { border-left-color: var(--vert); }
+.ligne.e-envoi { border-left-color: var(--bleu); background: var(--bleu-pale); }
+.ligne.e-envoyee { border-left-color: var(--encre); background: var(--creux); color: var(--gris); }
+.pastille.p-traiter { background: var(--rouge); color: #fff; }
+.pastille.p-justifiee { background: #cfcac0; color: #3d3b3d; }
+.pastille.p-validee { background: var(--vert); color: #fff; }
+.pastille.p-envoi { background: var(--bleu); color: #fff; }
+.pastille.p-envoyee { background: var(--encre); color: #fff; }
+.heures { font-size: 14.5px; }
+.ligne.surligne { animation: surligne 2.4s ease-out; }
+@keyframes surligne { 0%, 40% { box-shadow: 0 0 0 3px var(--jaune); } 100% { box-shadow: 0 0 0 0 transparent; } }
+
+/* Action à faire = bouton plein ; option = lien gris souligné, discret. */
+.actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.actions .btn { flex: 1 1 0; }
+.option { background: none; border: none; padding: 6px 0; font: inherit; font-size: 14.5px; color: var(--gris); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; text-align: left; }
+.actions .option { flex: 0 0 auto; }
