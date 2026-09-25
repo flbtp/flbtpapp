@@ -12,7 +12,7 @@
  * Numéro affiché en bas de l'accueil et de l'écran de connexion.
  * À augmenter à chaque dépôt de nouveaux fichiers sur GitHub : c'est le seul numéro à changer.
  */
-const VERSION_APPLI = '35';
+const VERSION_APPLI = '36';
 
 // ---------------------------------------------------------------------------
 // Petits outils
@@ -1620,9 +1620,11 @@ function apresCorrectionBureau(date) {
 }
 
 /** États de paie d'un jour (voir etatsJours côté serveur) : libellé court de la bande et classe. */
+// Version 36 : rouge = un problème ; jaune = tout est réglé, le bureau doit agir (valider) ; bleu = prêt, rien
+// à faire ; gris clair = terminé (envoyé ou hors appli), qui s'efface.
 const ETATS_JOUR = {
-  REGLER: ['', 'regler'], A_COCHER: ['✓ cocher', 'acocher'], ENVOI: ['envoi', 'envoi'], ENVOYE: ['envoyé', 'envoye'],
-  HORS_APPLI: ['hors appli', 'envoye'], EN_COURS: ['en cours', 'en-cours'], AVENIR: ['—', 'avenir'], VIDE: ['·', 'vide'],
+  REGLER: ['', 'regler'], A_COCHER: ['→ valider', 'avalider'], ENVOI: ['✓ prêt', 'envoi'], ENVOYE: ['envoyé', 'fini'],
+  HORS_APPLI: ['hors appli', 'fini'], EN_COURS: ['en cours', 'en-cours'], AVENIR: ['—', 'avenir'], VIDE: ['·', 'vide'],
   CHOME: ['chômé', 'vide'], HORS_CONTROLE: ['·', 'vide'],
 };
 const heuresTexte = mn => `${Math.floor(mn / 60)} h${mn % 60 ? ' ' + String(mn % 60).padStart(2, '0') : ''}`;
@@ -1633,7 +1635,7 @@ async function paieJour(date, action, commentaire) {
   try {
     await appel('bureau_paie_jour', { date, action, commentaire });
     oublierJour(date);
-    toast({ COCHER: 'Journée bonne pour la paie.', RETIRER: "Jour retiré de l'envoi : il se corrige de nouveau.",
+    toast({ COCHER: 'Journée validée pour la paie.', RETIRER: "Jour retiré de l'envoi : il se corrige de nouveau.",
       HORS_APPLI: 'Jour marqué traité hors appli.', ANNULER_HORS_APPLI: 'Le jour est de nouveau à traiter dans l\'appli.' }[action]);
     return true;
   } catch (err) { toast(err.message); return false; }
@@ -1650,6 +1652,8 @@ ROUTES.bureau = async function (date) {
 
   let justifOuvert = null;             // personne dont le formulaire « Justifier » est déplié
   let horsAppliOuvert = false;          // formulaire « traité hors appli » déplié
+  let pointOuvert = null;               // point du jour (type|cible) dont le formulaire « Justifier » est déplié
+  let chomeOuvert = false;              // formulaire « jour chômé » déplié
   let ctl = d.controles;                // relu à chaque dessin : d est redemandé après chaque action
   const etatJour = () => d.jour || { etat: 'VIDE', points: 0, journees: 0, minutes: 0 };
   const verrou = () => ['ENVOI', 'ENVOYE', 'HORS_APPLI'].includes(etatJour().etat);
@@ -1725,7 +1729,7 @@ ROUTES.bureau = async function (date) {
           <span class="pastille ${c.rapport.envoye ? 'vert' : 'rouge'}">Rapport ${c.rapport.envoye ? 'envoyé' : 'manquant'}</span>
         </div>
         ${c.chefAbsent ? (c.candidatsRemplacant.length ? `<div class="champ remplacant"><label for="remp-${esc(c.responsable)}">Remplaçant (rapport et validation de l'équipe)</label>
-            <select id="remp-${esc(c.responsable)}" data-remplacant="${esc(c.responsable)}" ${verrou() ? 'disabled' : ''}>${c.candidatsRemplacant.map(n => `<option ${n === c.remplacant ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select></div>`
+            <select id="remp-${esc(c.responsable)}" data-remplacant="${esc(c.responsable)}" ${verrou() ? 'disabled' : ''}>${c.remplacant ? '' : '<option value="" selected disabled>Remplaçant à choisir…</option>'}${c.candidatsRemplacant.map(n => `<option ${n === c.remplacant ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select></div>`
           : '<p class="discret">Chef absent : personne de l\'équipe n\'a encore saisi sa journée, pas de remplaçant.</p>') : ''}
         ${(c.horsPlanning || []).map(h => `<p class="discret">+ ${esc(nomCourt(h.libelle))} : hors planning, déclaré par ${esc(h.declarePar.join(', '))}.</p>`).join('')}
         ${manquantes ? `<p class="discret">${manquantes} sans saisie</p>` : ''}
@@ -1744,7 +1748,29 @@ ROUTES.bureau = async function (date) {
   const bandeauJour = () => {
     const j = etatJour();
     const titre = dateLongue(date);
-    const corriger = ctl.duJour.filter(c => c.cat === 'corriger');
+    const corriger = d.points || [];
+    const motifsForm = (liste, attr) => `<div class="choix" style="--n:2">${liste.map(m => `<button type="button" ${attr}="${esc(m)}">${esc(m)}</button>`).join('')}</div>
+      <input type="text" id="commentairePoint" placeholder="Commentaire (facultatif)" maxlength="300">`;
+    // Chaque point à corriger, avec « Justifier… » (l'écran « contrôles » n'existe plus — version 36).
+    const lignePoint = c => {
+      const id = `${c.type}|${c.cible}`;
+      if (pointOuvert === id) return `<li class="point-ouvert"><b>${esc(c.titre)}</b>${c.detail ? `<br><span class="discret">${esc(c.detail)}</span>` : ''}
+        ${motifsForm(d.motifs, 'data-motif-point')}
+        <div class="duo"><button class="btn btn-clair btn-petit" type="button" data-point-fermer>Annuler</button>
+          <button class="btn btn-principal btn-petit" type="button" data-point-enregistrer="${esc(id)}" disabled>Enregistrer</button></div></li>`;
+      return `<li>${esc(c.titre)} <button class="option" type="button" data-point="${esc(id)}">Justifier…</button></li>`;
+    };
+    const verrouille = ['ENVOI', 'ENVOYE', 'HORS_APPLI'].includes(j.etat);
+    const justifies = (d.justifies || []).filter(x => x.type !== 'JOURNEE_MANQUANTE' || !d.chantiers.some(c => c.journees.some(y => y.personne === x.cible)));
+    const blocJustifies = justifies.length ? `<div class="justifies"><span class="sous">Justifié ce jour</span>
+      ${justifies.map(x => `<p>${esc(x.type === 'JOUR_NON_TRAVAILLE' ? 'Jour chômé' : x.titre)} — <span class="discret">${esc(x.justification)}</span>
+        ${verrouille ? '' : `<button class="option" type="button" data-annuler-justif="${esc(x.type)}|${esc(x.cible)}">Annuler</button>`}</p>`).join('')}</div>` : '';
+    const chome = d.planningTrouve && !verrouille && !['CHOME', 'AVENIR', 'EN_COURS'].includes(j.etat)
+      && !(d.justifies || []).some(x => x.type === 'JOUR_NON_TRAVAILLE')
+      ? (chomeOuvert ? `<div class="form-chome"><b>Jour chômé (férié, pont…)</b>${motifsForm(d.motifsJour || ['Férié', 'Pont', 'Autre'], 'data-motif-jour')}
+          <div class="duo"><button class="btn btn-clair btn-petit" type="button" data-chome="fermer">Annuler</button>
+          <button class="btn btn-sombre btn-petit" type="button" data-chome="ok" disabled>Déclarer le jour chômé</button></div></div>`
+        : `<button class="option" type="button" data-chome="ouvrir">Déclarer jour chômé (férié, pont…)</button>`) : '';
     const lienHorsAppli = ['REGLER', 'A_COCHER', 'ENVOI', 'HORS_CONTROLE'].includes(j.etat)
       ? (horsAppliOuvert ? `<input type="text" id="commentaireHorsAppli" placeholder="Pourquoi ? (ex. saisi à la main dans le Suivi RH)" maxlength="300">
           <div class="duo"><button class="btn btn-clair btn-petit" type="button" data-hors-appli="fermer">Annuler</button>
@@ -1752,11 +1778,11 @@ ROUTES.bureau = async function (date) {
         : `<button class="option" type="button" data-hors-appli="ouvrir">Marquer comme traité hors appli</button>`) : '';
     const contenu = {
       REGLER: ['rouge', `${titre} — ${j.points} point${j.points > 1 ? 's' : ''} à régler`,
-        `<ul>${corriger.slice(0, 6).map(c => `<li>${esc(c.titre)}</li>`).join('')}${corriger.length > 6 ? `<li>… et ${corriger.length - 6} autres</li>` : ''}</ul>
-         <button class="btn btn-petit" type="button" disabled>Journée du ${Number(date.slice(8))} bon pour la paie</button>`],
-      A_COCHER: ['vert', `${titre} — tout est réglé`, `<p>${esc(chiffresJour(j))}</p>
-         <button class="btn btn-principal btn-petit" type="button" data-paie="COCHER">Journée du ${Number(date.slice(8))} bon pour la paie</button>`],
-      ENVOI: ['bleu', `${titre} — dans l'envoi`, `<p>${esc(chiffresJour(j))} partiront au prochain envoi.${j.points ? ` <b>Retenu : ${j.points} point(s) à corriger.</b>` : ''}</p>
+        `<ul class="points">${corriger.map(lignePoint).join('')}</ul>
+         <button class="btn btn-petit" type="button" disabled>Valider la journée pour la paie</button>`],
+      A_COCHER: ['jaune', `${titre} — tout est réglé, à valider`, `<p>${esc(chiffresJour(j))}</p>
+         <button class="btn btn-principal btn-petit" type="button" data-paie="COCHER">Valider la journée pour la paie</button>`],
+      ENVOI: ['bleu', `${titre} — ✓ prêt, dans l'envoi`, `<p>${esc(chiffresJour(j))} partiront au prochain envoi. Rien d'autre à faire.${j.points ? ` <b>Retenu : ${j.points} point(s) à corriger.</b>` : ''}</p>
          <p class="discret">Verrouillé : plus de saisie, de rapport ni d'ajout pour ce jour.</p>
          <div class="actions"><button class="option" type="button" data-paie="RETIRER">Retirer le jour de l'envoi (pour corriger)</button></div>`],
       ENVOYE: ['noir', `${titre} — envoyé dans le Suivi RH`, `<p class="discret">${esc(chiffresJour(j))}.</p>`],
@@ -1768,7 +1794,7 @@ ROUTES.bureau = async function (date) {
       CHOME: ['gris', `${titre} — jour chômé`, ''],
       HORS_CONTROLE: ['gris', `${titre} — avant la mise en service`, `<p class="discret">${esc(chiffresJour(j))} jamais envoyées. Jour antérieur à CONTROLES_DEPUIS.</p>`],
     }[j.etat] || ['gris', titre, ''];
-    return `<div class="bandeau-jour ${contenu[0]}"><h2>${esc(contenu[1])}</h2>${contenu[2]}${lienHorsAppli}</div>`;
+    return `<div class="bandeau-jour ${contenu[0]}"><h2>${esc(contenu[1])}</h2>${contenu[2]}${blocJustifies}${chome}${lienHorsAppli}</div>`;
   };
 
   const dessiner = () => {
@@ -1783,9 +1809,9 @@ ROUTES.bureau = async function (date) {
 
       <!-- La chaîne de la paie, par jour entier : à régler → complets, à cocher → dans l'envoi. -->
       <div class="chaine">
-        <button type="button" class="etape rouge" data-filtre="corriger"><b>${P.regler.jours}</b><span>jour${P.regler.jours > 1 ? 's' : ''} à régler<br>(${P.regler.points} point${P.regler.points > 1 ? 's' : ''})</span></button>
+        <button type="button" class="etape rouge" data-liste-paie="REGLER"><b>${P.regler.jours}</b><span>jour${P.regler.jours > 1 ? 's' : ''} à régler<br>(${P.regler.points} point${P.regler.points > 1 ? 's' : ''})</span></button>
         <div class="fleche">›</div>
-        <button type="button" class="etape vert" data-liste-paie="A_COCHER"><b>${P.aCocher.jours}</b><span>jour${P.aCocher.jours > 1 ? 's' : ''} complet${P.aCocher.jours > 1 ? 's' : ''}, à cocher</span></button>
+        <button type="button" class="etape jaune" data-liste-paie="A_COCHER"><b>${P.aCocher.jours}</b><span>jour${P.aCocher.jours > 1 ? 's' : ''} à valider</span></button>
         <div class="fleche">›</div>
         <button type="button" class="etape bleu" data-liste-paie="ENVOI"><b>${P.envoi.jours}</b><span>jour${P.envoi.jours > 1 ? 's' : ''} dans l'envoi</span></button>
       </div>
@@ -1796,10 +1822,9 @@ ROUTES.bureau = async function (date) {
             class="${cls} ${j.weekend ? 'weekend' : ''} ${new Date(j.date + 'T12:00:00Z').getUTCDay() === 1 ? 'lundi' : ''}">
             <small>${esc(jourCourt(j.date))}</small><b>${Number(j.date.slice(8))}</b>${j.etat === 'REGLER' ? `<span class="badge">${j.points}</span>` : esc(lib)}</button>`; }).join('')}
       </div>
-      <div class="leg-bande"><span><i class="l-regler"></i>à régler</span><span><i class="l-acocher"></i>à cocher</span><span><i class="l-envoi"></i>dans l'envoi</span><span><i class="l-envoye"></i>envoyé</span></div>
+      <div class="leg-bande"><span><i class="l-regler"></i>à régler</span><span><i class="l-avalider"></i>à valider</span><span><i class="l-envoi"></i>prêt, dans l'envoi</span><span><i class="l-fini"></i>envoyé</span></div>
       ${date !== aujourdhui() ? `<button class="btn btn-clair btn-petit" type="button" id="aujourdhui">Revenir à aujourd'hui</button>` : ''}
-      ${ctl.compteurs.corriger + ctl.compteurs.verifier + ctl.compteurs.referentiel
-        ? `<button class="btn btn-clair btn-petit" type="button" onclick="aller('/controles')">Voir la liste des ${ctl.compteurs.corriger + ctl.compteurs.verifier + ctl.compteurs.referentiel} contrôles</button>` : ''}
+      ${d.referentiels ? `<button type="button" class="alerte orange alerte-bouton" id="referentiels">${ICONES.attention}<span><b>${d.referentiels} problème${d.referentiels > 1 ? 's' : ''} dans le planning</b> (nom ou chantier inconnu, personne sans code…) — Voir</span></button>` : ''}
 
       ${bandeauJour()}
 
@@ -1813,10 +1838,6 @@ ROUTES.bureau = async function (date) {
       </div>`}
 
       <div class="pied">
-        <div class="alerte ${P.envoi.jours ? 'bleu' : 'vert'}">${P.envoi.jours ? ICONES.horloge : ICONES.ok}<span>
-          ${P.envoi.jours ? `<b>${P.envoi.jours} jour${P.envoi.jours > 1 ? 's' : ''}</b> (${esc(chiffresJour(P.envoi))}) dans l'envoi vers le Suivi RH.`
-            : 'Rien dans l\'envoi vers le Suivi RH.'}</span></div>
-        <button class="btn ${P.envoi.jours ? 'btn-principal' : 'btn-sombre'}" type="button" id="importer" ${P.envoi.jours ? '' : 'disabled'}>Envoyer dans le Suivi RH${P.envoi.jours ? ` (${P.envoi.jours} jour${P.envoi.jours > 1 ? 's' : ''})` : ''}</button>
         <button type="button" class="version" onclick="aller('/diagnostic')">Version ${esc(VERSION_APPLI)}</button>
       </div>`;
 
@@ -1852,7 +1873,6 @@ ROUTES.bureau = async function (date) {
       } catch (err) { toast(err.message); }
       if (toujoursIci()) dessiner();
     });
-    $('#importer').onclick = importer;
     brancherBande($('#bande'), jourChoisi => aller('/bureau/' + jourChoisi));
     if ($('#aujourdhui')) $('#aujourdhui').onclick = () => aller('/bureau/' + aujourdhui());
     $$('[data-annuler-justif]').forEach(b => b.onclick = async () => {
@@ -1862,11 +1882,55 @@ ROUTES.bureau = async function (date) {
         await appel('bureau_justifier', { date, elements: [{ type, cible }], annuler: true });
         d = await appel('bureau_jour', { date });
         oublierJour(date);
-        toast('Justification annulée : la journée est de nouveau attendue.');
+        toast(type === 'JOURNEE_MANQUANTE' ? 'Justification annulée : la journée est de nouveau attendue.' : 'Justification annulée.');
       } catch (err) { toast(err.message); }
       if (toujoursIci()) dessiner();
     });
-    $$('[data-filtre]').forEach(b => b.onclick = () => { stock.ecrire('filtreControles', b.dataset.filtre); aller('/controles'); });
+    if ($('#referentiels')) $('#referentiels').onclick = () => aller('/referentiels');
+    // Points à corriger du jour : « Justifier… »
+    $$('[data-point]').forEach(b => b.onclick = () => { pointOuvert = b.dataset.point; dessiner(); });
+    $$('[data-point-fermer]').forEach(b => b.onclick = () => { pointOuvert = null; dessiner(); });
+    $$('[data-motif-point]').forEach(b => b.onclick = () => {
+      $$('[data-motif-point]').forEach(x => x.setAttribute('aria-pressed', x === b));
+      $('[data-point-enregistrer]').disabled = false;
+    });
+    $$('[data-point-enregistrer]').forEach(b => b.onclick = async () => {
+      const [type, cible] = b.dataset.pointEnregistrer.split('|');
+      const motif = $('[data-motif-point][aria-pressed="true"]').dataset.motifPoint;
+      $$('button').forEach(x => { x.disabled = true; });
+      try {
+        await appel('bureau_justifier', { date, elements: [{ type, cible }], motif, commentaire: $('#commentairePoint').value });
+        pointOuvert = null;
+        d = await appel('bureau_jour', { date });
+        oublierJour(date);
+        toast('Justifié.');
+      } catch (err) { toast(err.message); }
+      if (toujoursIci()) dessiner();
+    });
+    // Jour chômé : les personnes sans saisie sont justifiées d'un coup ; les temps saisis restent.
+    $$('[data-chome]').forEach(b => b.onclick = async () => {
+      const quoi = b.dataset.chome;
+      if (quoi !== 'ok') { chomeOuvert = quoi === 'ouvrir'; return dessiner(); }
+      const motif = $('[data-motif-jour][aria-pressed="true"]').dataset.motifJour;
+      const commentaire = $('#commentairePoint').value;
+      const saisies = d.chantiers.reduce((n, c) => n + c.journees.filter(x => x.journee).length, 0) + d.horsChantier.filter(x => x.journee).length;
+      if (saisies && !(await confirmer('Déclarer ce jour chômé ?',
+        `${saisies} journée${saisies > 1 ? 's sont saisies' : ' est saisie'} ce jour-là : elle${saisies > 1 ? 's' : ''} ne ${saisies > 1 ? 'sont' : 'est'} pas effacée${saisies > 1 ? 's' : ''} et ${saisies > 1 ? 'restent' : 'reste'} à valider normalement. Seules les personnes sans saisie seront justifiées.`,
+        'Déclarer chômé'))) return;
+      $$('button').forEach(x => { x.disabled = true; });
+      try {
+        await appel('bureau_justifier', { date, elements: [{ type: 'JOUR_NON_TRAVAILLE', cible: '' }], motif, commentaire });
+        chomeOuvert = false;
+        d = await appel('bureau_jour', { date });
+        oublierJour(date);
+        toast('Jour déclaré chômé.');
+      } catch (err) { toast(err.message); }
+      if (toujoursIci()) dessiner();
+    });
+    $$('[data-motif-jour]').forEach(b => b.onclick = () => {
+      $$('[data-motif-jour]').forEach(x => x.setAttribute('aria-pressed', x === b));
+      $('[data-chome="ok"]').disabled = false;
+    });
     $$('[data-liste-paie]').forEach(b => b.onclick = () => aller('/paie/' + b.dataset.listePaie));
     $$('[data-paie]').forEach(b => b.onclick = async () => {
       if (b.dataset.paie === 'RETIRER' && !(await confirmer("Retirer ce jour de l'envoi ?", 'Il pourra de nouveau être modifié, puis devra être recoché.', 'Retirer'))) return;
@@ -1902,19 +1966,6 @@ ROUTES.bureau = async function (date) {
     if (toujoursIci()) dessiner();
   };
 
-  const importer = async () => {
-    const P = ctl.paie.envoi;
-    if (!(await confirmer('Envoyer dans le Suivi RH ?', `${P.jours} jour${P.jours > 1 ? 's' : ''} : ${chiffresJour(P)}.`, 'Envoyer'))) return;
-    const b = $('#importer'); b.disabled = true; b.textContent = 'Envoi…';
-    try {
-      const r = await appel('bureau_import');
-      d = await appel('bureau_jour', { date });
-      toast(`${r.ecrites} journée(s) écrite(s) dans le Suivi RH${r.horsSuivi ? `, ${r.horsSuivi} hors Suivi RH` : ''}.`);
-      if (r.ignorees && r.ignorees.length) await confirmer('Non envoyées', r.ignorees.join(' — '), 'Compris');
-    } catch (err) { toast(err.message); }
-    if (toujoursIci()) dessiner();
-  };
-
   dessiner();
   // Retour d'une journée ou d'un rapport ouvert d'ici : on retrouve la même ligne (point 1 de la v35).
   const retour = stock.lire('retourBureau');
@@ -1931,183 +1982,92 @@ ROUTES.bureau = async function (date) {
 /** Les jours d'une étape de la chaîne de paie (« complets, à cocher » ou « dans l'envoi »), toutes dates confondues. */
 ROUTES.paie = async function (etape) {
   const toujoursIci = ecranCourant();
-  etape = etape === 'ENVOI' ? 'ENVOI' : 'A_COCHER';
+  etape = ['ENVOI', 'REGLER'].includes(etape) ? etape : 'A_COCHER';
+  const cle = { ENVOI: 'envoi', REGLER: 'regler', A_COCHER: 'aCocher' }[etape];
   chargement();
   let d;
   try { d = await appel('bureau_jour', { date: aujourdhui() }); } catch (err) { if (toujoursIci()) erreurEcran(err); return; }
   if (!toujoursIci()) return;
+  const recharger = async () => { d = await appel('bureau_jour', { date: aujourdhui() }).catch(() => d); };
   const dessiner = () => {
-    const P = d.controles.paie[etape === 'ENVOI' ? 'envoi' : 'aCocher'];
+    const P = d.controles.paie[cle];
+    const titre = { ENVOI: "Dans l'envoi", REGLER: 'Jours à régler', A_COCHER: 'Jours à valider' }[etape];
+    const resume = etape === 'REGLER' ? `${P.jours} jour${P.jours > 1 ? 's' : ''} — ${P.points} point${P.points > 1 ? 's' : ''} à corriger`
+      : `${P.jours} jour${P.jours > 1 ? 's' : ''} — ${chiffresJour(P)}`;
     APP().innerHTML = `
       <div class="entete">
-        <button class="retour" type="button" aria-label="Retour" onclick="history.back()">${ICONES.retour}</button>
-        <div><h1>${etape === 'ENVOI' ? "Dans l'envoi" : 'Jours complets, à cocher'}</h1>
-          <p class="discret">${P.jours} jour${P.jours > 1 ? 's' : ''} — ${esc(chiffresJour(P))}</p></div>
+        <button class="retour" type="button" aria-label="Retour" onclick="aller('/bureau')">${ICONES.retour}</button>
+        <div><h1>${titre}</h1><p class="discret">${esc(resume)}</p></div>
       </div>
+      ${etape === 'ENVOI' ? `<button class="btn ${P.jours ? 'btn-principal' : 'btn-sombre'}" type="button" id="importer" ${P.jours ? '' : 'disabled'}>
+          Envoyer dans le Suivi RH${P.jours ? ` (${P.jours} jour${P.jours > 1 ? 's' : ''})` : ''}</button>` : ''}
       ${P.liste.length ? P.liste.map(j => `
         <section class="bloc">
           <div class="bloc-titre">${esc(dateLongue(j.date))}</div>
-          <div class="resume-ligne ${etape === 'ENVOI' ? 'bleu' : 'vert'}"><span>${esc(chiffresJour(j))}</span>${j.points ? `<b class="rouge">${j.points} point(s)</b>` : ''}</div>
+          ${etape === 'REGLER'
+            ? `<div class="resume-ligne rouge"><span>${j.points} point${j.points > 1 ? 's' : ''} à corriger</span></div>
+               <ul class="points">${(j.titres || []).map(t => `<li>${esc(t)}</li>`).join('')}${j.points > (j.titres || []).length ? `<li>…</li>` : ''}</ul>`
+            : `<div class="resume-ligne ${etape === 'ENVOI' ? 'bleu' : 'jaune'}"><span>${esc(chiffresJour(j))}</span>${j.points ? `<b class="rouge">${j.points} point(s)</b>` : ''}</div>`}
           <div class="actions">
-            ${etape === 'A_COCHER' ? `<button class="btn btn-principal btn-petit" type="button" data-cocher="${j.date}">Journée bon pour la paie</button>` : ''}
-            <button class="option" type="button" onclick="aller('/bureau/${j.date}')">Ouvrir le jour</button>
+            ${etape === 'A_COCHER' ? `<button class="btn btn-principal btn-petit" type="button" data-cocher="${j.date}">Valider la journée pour la paie</button>` : ''}
+            <button class="${etape === 'REGLER' ? 'btn btn-principal btn-petit' : 'option'}" type="button" data-ouvrir-jour="${j.date}">${etape === 'REGLER' ? 'Régler ce jour' : 'Ouvrir le jour'}</button>
             ${etape === 'ENVOI' ? `<button class="option" type="button" data-retirer="${j.date}">Retirer de l'envoi</button>` : ''}
           </div>
         </section>`).join('') : `<section class="bloc"><p class="discret">Aucun jour ici pour l'instant.</p></section>`}`;
+    $$('[data-ouvrir-jour]').forEach(b => b.onclick = () => aller('/bureau/' + b.dataset.ouvrirJour));
     $$('[data-cocher]').forEach(b => b.onclick = async () => {
       $$('button').forEach(x => { x.disabled = true; });
-      if (await paieJour(b.dataset.cocher, 'COCHER')) d = await appel('bureau_jour', { date: aujourdhui() }).catch(() => d);
+      if (await paieJour(b.dataset.cocher, 'COCHER')) await recharger();
       if (toujoursIci()) dessiner();
     });
     $$('[data-retirer]').forEach(b => b.onclick = async () => {
-      if (!(await confirmer("Retirer ce jour de l'envoi ?", 'Il pourra de nouveau être modifié, puis devra être recoché.', 'Retirer'))) return;
+      if (!(await confirmer("Retirer ce jour de l'envoi ?", 'Il pourra de nouveau être modifié, puis devra être revalidé.', 'Retirer'))) return;
       $$('button').forEach(x => { x.disabled = true; });
-      if (await paieJour(b.dataset.retirer, 'RETIRER')) d = await appel('bureau_jour', { date: aujourdhui() }).catch(() => d);
+      if (await paieJour(b.dataset.retirer, 'RETIRER')) await recharger();
       if (toujoursIci()) dessiner();
     });
+    // L'envoi dans le Suivi RH se fait d'ici, sous la liste de ce qui partira (version 36).
+    if ($('#importer')) $('#importer').onclick = async () => {
+      const Q = d.controles.paie.envoi;
+      if (!(await confirmer('Envoyer dans le Suivi RH ?', `${Q.jours} jour${Q.jours > 1 ? 's' : ''} : ${chiffresJour(Q)}.`, 'Envoyer'))) return;
+      const b = $('#importer'); b.disabled = true; b.textContent = 'Envoi…';
+      try {
+        const r = await appel('bureau_import');
+        await recharger();
+        toast(`${r.ecrites} journée(s) écrite(s) dans le Suivi RH${r.horsSuivi ? `, ${r.horsSuivi} hors Suivi RH` : ''}.`);
+        if (r.ignorees && r.ignorees.length) await confirmer('Non envoyées', r.ignorees.join(' — '), 'Compris');
+      } catch (err) { toast(err.message); }
+      if (toujoursIci()) dessiner();
+    };
   };
   dessiner();
 };
+// Ancien lien vers la liste des contrôles : les jours à régler.
+ROUTES.controles = () => ROUTES.paie('REGLER');
 
-/** Saisie ou correction d'une journée par le bureau, pour n'importe qui. */
-// ---------------------------------------------------------------------------
-// Écran : contrôles avant paie (bureau)
-// ---------------------------------------------------------------------------
-
-const CATEGORIES_CONTROLES = [['corriger', 'À corriger'], ['verifier', 'À vérifier'], ['referentiel', 'Référentiels'], ['justifies', 'Justifiés']];
-
-ROUTES.controles = async function () {
+/**
+ * Problèmes du planning et de ses référentiels (nom ou chantier inconnu, personne sans code, planning du
+ * jour introuvable). Pas de justification : ils disparaissent quand le planning est corrigé (version 36).
+ */
+ROUTES.referentiels = async function () {
   const toujoursIci = ecranCourant();
   chargement();
   let d;
   try { d = await appel('bureau_controles'); } catch (err) { if (toujoursIci()) erreurEcran(err); return; }
   if (!toujoursIci()) return;
-  let filtre = stock.lire('filtreControles', 'corriger');
-  let ouvert = null;                       // contrôle dont le formulaire « Justifier » est déplié
-
-  // Le même chantier le même jour : journées manquantes de l'équipe et rapport manquant de son chef.
-  const voisins = c => {
-    const chef = c.type === 'RAPPORT_MANQUANT' ? c.cible : c.responsable;
-    if (!chef || !['JOURNEE_MANQUANTE', 'RAPPORT_MANQUANT'].includes(c.type)) return [c];
-    return d.controles.filter(x => x.date === c.date && !x.justification
-      && ((x.type === 'JOURNEE_MANQUANTE' && x.responsable === chef) || (x.type === 'RAPPORT_MANQUANT' && x.cible === chef)));
-  };
-  const decrireVoisins = v => {
-    const n = v.filter(x => x.type === 'JOURNEE_MANQUANTE').length;
-    const r = v.some(x => x.type === 'RAPPORT_MANQUANT');
-    return [n ? `${n} journée${n > 1 ? 's' : ''} manquante${n > 1 ? 's' : ''}` : '', r ? 'le rapport' : ''].filter(Boolean).join(' et ');
-  };
-  const dansFiltre = c => (filtre === 'justifies' ? !!c.justification : !c.justification && c.cat === filtre);
-  const nombre = f => d.controles.filter(c => (f === 'justifies' ? !!c.justification : !c.justification && c.cat === f)).length;
-  const BOUTONS = {
-    saisir: c => `<button class="btn btn-principal" type="button" data-act="saisir" data-id="${esc(c.id)}">Saisir sa journée</button>`,
-    ouvrir: c => `<button class="btn btn-clair" type="button" data-act="ouvrir" data-id="${esc(c.id)}">Ouvrir la journée</button>`,
-    valider: c => `<button class="btn btn-vert" type="button" data-act="valider" data-id="${esc(c.id)}">Valider</button>`,
-    rapport: c => `<button class="btn btn-clair" type="button" data-act="rapport" data-id="${esc(c.id)}">${c.type === 'RAPPORT_MANQUANT' ? 'Remplir à sa place' : 'Ouvrir le rapport'}</button>`,
-    jour: c => `<button class="btn btn-clair" type="button" data-act="jour" data-id="${esc(c.id)}">Voir l'équipe</button>`,
-    justifier: c => `<button class="btn btn-clair" type="button" data-act="justifier" data-id="${esc(c.id)}">Justifier…</button>`,
-  };
-  const carte = c => `
-    <div class="ctl ${c.cat}" data-controle="${esc(c.id)}">
-      <div class="t">${esc(c.titre)}</div>
-      <div class="d">${esc(c.detail || '')}</div>
-      ${c.aide ? `<div class="d aide">À faire : ${esc(c.aide)}</div>` : ''}
-      ${c.justification ? `<div class="d">${c.type === 'JOUR_NON_TRAVAILLE' ? 'Déclarée' : 'Justifié'} : ${esc(c.justification)}</div>
-        <div class="a"><button class="btn btn-clair" type="button" data-act="rouvrir" data-id="${esc(c.id)}">Annuler la justification</button></div>`
-      : ouvert === c.id ? `
-        <div class="choix" style="--n:2">${d.motifs.map(m => `<button type="button" data-motif="${esc(m)}">${esc(m)}</button>`).join('')}</div>
-        ${voisins(c).length > 1 ? `<label class="case"><input type="checkbox" id="toutChantier">
-          Tout le chantier de ${esc(c.responsable || c.cible)} : ${decrireVoisins(voisins(c))}</label>` : ''}
-        <input type="text" id="commentaire" placeholder="Commentaire (facultatif)" maxlength="300">
-        <div class="a"><button class="btn btn-clair" type="button" data-act="fermer">Annuler</button>
-          <button class="btn btn-principal" type="button" data-act="enregistrer-justif" data-id="${esc(c.id)}" disabled>Enregistrer</button></div>`
-      : (c.actions && c.actions.length ? `<div class="a">${c.actions.map(a => BOUTONS[a](c)).join('')}</div>` : '')}
-    </div>`;
-
-  // Jour chômé (férié, pont) alors qu'un planning existe : déclaré une fois pour tout le jour.
-  let jourOuvert = null;
-  const enTeteJour = dt => {
-    if (filtre === 'justifies' || !d.joursPlanning.includes(dt)) return '';
-    if (!d.controles.some(c => c.date === dt && !c.justification && (c.type === 'JOURNEE_MANQUANTE' || c.type === 'RAPPORT_MANQUANT'))) return '';
-    if (jourOuvert !== dt) return `<button class="btn btn-ajout btn-petit" type="button" data-jour-nt="${dt}">Jour chômé (férié, pont…)</button>`;
-    return `<div class="ctl verifier">
-      <div class="t">Jour chômé pour tout le monde</div>
-      <div class="d">Efface les journées et rapports manquants de ce jour. Ceux qui ont travaillé saisissent leur journée normalement.</div>
-      <div class="choix" style="--n:3">${d.motifsJour.map(m => `<button type="button" data-motif="${esc(m)}">${esc(m)}</button>`).join('')}</div>
-      <input type="text" id="commentaire" placeholder="Commentaire (facultatif)" maxlength="300">
-      <div class="a"><button class="btn btn-clair" type="button" data-act="fermer">Annuler</button>
-        <button class="btn btn-principal" type="button" data-act="enregistrer-jour" data-date="${dt}" disabled>Enregistrer</button></div></div>`;
-  };
-
-  const dessiner = () => {
-    const visibles = d.controles.filter(dansFiltre);
-    const dates = [...new Set(visibles.map(c => c.date))].sort().reverse();
-    APP().innerHTML = `
-      <div class="entete">
-        <button class="retour" type="button" aria-label="Retour" onclick="aller('/bureau')">${ICONES.retour}</button>
-        <div><h1>Contrôles</h1><p class="discret">Journées pas encore envoyées en paie, sur les trois dernières semaines</p></div>
-      </div>
-      <div class="filtres">${CATEGORIES_CONTROLES.map(([k, lib]) => `<button type="button" data-cat="${k}" aria-pressed="${k === filtre}">${lib} ${nombre(k)}</button>`).join('')}</div>
-      ${filtre === 'corriger' ? '<p class="discret">Ces points bloquent l\'envoi dans le Suivi RH des journées concernées.</p>' : ''}
-      ${dates.length ? dates.map(dt => `<p class="jour-titre">${esc(dateLongue(dt))}</p>${enTeteJour(dt)}${visibles.filter(c => c.date === dt).map(carte).join('')}`).join('')
-        : `<div class="alerte vert">${ICONES.ok}<span>Rien dans cette catégorie.</span></div>`}`;
-    $$('[data-cat]').forEach(b => b.onclick = () => { filtre = b.dataset.cat; ouvert = null; stock.ecrire('filtreControles', filtre); dessiner(); });
-    $$('[data-motif]').forEach(b => b.onclick = () => {
-      $$('[data-motif]').forEach(x => x.setAttribute('aria-pressed', x === b));
-      $$('[data-act="enregistrer-justif"], [data-act="enregistrer-jour"]').forEach(x => { x.disabled = false; });
-    });
-    $$('[data-jour-nt]').forEach(b => b.onclick = () => { jourOuvert = b.dataset.jourNt; ouvert = null; dessiner(); });
-    $$('[data-act="enregistrer-jour"]').forEach(b => b.onclick = async () => {
-      const motif = ($('[data-motif][aria-pressed="true"]') || {}).dataset.motif;
-      $$('button').forEach(x => { x.disabled = true; });
-      try {
-        await appel('bureau_justifier', { type: 'JOUR_NON_TRAVAILLE', date: b.dataset.date, cible: '', motif, commentaire: $('#commentaire').value });
-        jourOuvert = null;
-        return recharger('Jour déclaré chômé.');
-      } catch (err) { toast(err.message); dessiner(); }
-    });
-    $$('[data-act]:not([data-act="enregistrer-jour"])').forEach(b => b.onclick = () => agir(b.dataset.act, d.controles.find(c => c.id === b.dataset.id)));
-  };
-
-  const recharger = async message => {
-    try { d = await appel('bureau_controles'); if (message) toast(message); } catch (err) { toast(err.message); }
-    if (toujoursIci()) dessiner();
-  };
-
-  const agir = async (act, c) => {
-    if (act === 'fermer') { ouvert = null; jourOuvert = null; return dessiner(); }
-    if (act === 'justifier') { ouvert = c.id; jourOuvert = null; return dessiner(); }
-    retourControles = true;
-    if (act === 'saisir' || act === 'ouvrir') return aller(`/bureau-journee/${c.date}/${encodeURIComponent(c.personne)}`);
-    if (act === 'rapport') return aller(`/rapport/${c.date}/${encodeURIComponent(c.responsable)}`);
-    if (act === 'jour') { retourControles = false; return aller('/bureau/' + c.date); }
-    retourControles = false;
-    $$('button').forEach(b => { b.disabled = true; });
-    try {
-      if (act === 'valider') {
-        await appel('bureau_valider', { date: c.date, quoi: 'CHEF', personnes: [c.personne] });
-        oublierJour(c.date);
-        return recharger('Journée validée.');
-      }
-      const [type, date, ...reste] = c.id.split('|');
-      if (act === 'rouvrir') {
-        await appel('bureau_justifier', { type, date, cible: reste.join('|'), annuler: true });
-        return recharger('Justification annulée.');
-      }
-      if (act === 'enregistrer-justif') {
-        const motif = ($('[data-motif][aria-pressed="true"]') || {}).dataset.motif;
-        const tous = $('#toutChantier') && $('#toutChantier').checked ? voisins(c) : [c];
-        const elements = tous.map(x => ({ type: x.type, cible: x.cible }));
-        await appel('bureau_justifier', { date, elements, motif, commentaire: $('#commentaire').value });
-        ouvert = null;
-        return recharger(tous.length > 1 ? `${tous.length} points justifiés.` : 'Justifié.');
-      }
-    } catch (err) {
-      toast(err.message);
-      if (toujoursIci()) dessiner();
-    }
-  };
-  dessiner();
+  const liste = d.controles.filter(c => c.cat === 'referentiel' && !c.justification);
+  APP().innerHTML = `
+    <div class="entete">
+      <button class="retour" type="button" aria-label="Retour" onclick="aller('/bureau')">${ICONES.retour}</button>
+      <div><h1>Problèmes du planning</h1><p class="discret">${liste.length} à corriger dans le planning ou ses onglets</p></div>
+    </div>
+    <p class="discret">Ils disparaissent d'eux-mêmes une fois corrigés dans le planning (pris en compte sous 30 minutes).</p>
+    ${liste.length ? liste.map(c => `
+      <div class="ctl referentiel" data-controle="${esc(c.id)}">
+        <div class="t">${esc(c.titre)}</div>
+        <div class="d">${esc(dateLongue(c.date))} — ${esc(c.detail || '')}</div>
+        ${c.aide ? `<div class="d aide">À faire : ${esc(c.aide)}</div>` : ''}
+      </div>`).join('') : `<div class="alerte vert">${ICONES.ok}<span>Aucun problème dans le planning.</span></div>`}`;
 };
 
 // ---------------------------------------------------------------------------

@@ -355,3 +355,31 @@ button.compteur { cursor: pointer; }
 .actions .btn { flex: 1 1 0; }
 .option { background: none; border: none; padding: 6px 0; font: inherit; font-size: 14.5px; color: var(--gris); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; text-align: left; }
 .actions .option { flex: 0 0 auto; }
+
+/* ------------------------------------------------------------------ version 36 */
+/* Couleurs des jours : rouge = problème, jaune = action du bureau attendue, bleu = prêt, gris clair = terminé. */
+:root { --orange: #B85C00; --orange-pale: #FCEBD7; }
+.etape.jaune { box-shadow: inset 0 0 0 2px var(--jaune); background: var(--jaune-pale); } .etape.jaune b { color: #8a5e00; }
+.bande-jours .avalider { background: var(--jaune-pale); color: #6b4a00; border-color: var(--jaune); font-weight: 600; }
+.bande-jours .fini { background: var(--creux); color: var(--gris); }
+.bande-jours .fini small { color: var(--gris); }
+.bande-jours .weekend.avalider, .bande-jours .weekend.fini { border-style: solid; }
+/* Jour affiché : cadre jaune épais et repère dessous, visibles sur toutes les couleurs. */
+.bande-jours { padding-bottom: 10px; }
+.bande-jours button[aria-current="true"] { box-shadow: none; outline: 3px solid var(--encre); outline-offset: -3px; position: relative; }
+.bande-jours button[aria-current="true"]::after { content: ''; position: absolute; left: 50%; bottom: -9px; transform: translateX(-50%);
+  border: 6px solid transparent; border-top-color: var(--encre); }
+.leg-bande .l-avalider { background: var(--jaune-pale); border: 1px solid var(--jaune); }
+.leg-bande .l-fini { background: var(--creux); border: 1px solid var(--trait); }
+.bandeau-jour.jaune { background: var(--jaune-pale); border-left-color: var(--jaune); }
+.bandeau-jour ul.points { list-style: none; padding-left: 0; display: flex; flex-direction: column; gap: 4px; }
+.bandeau-jour ul.points li { padding: 4px 0; border-bottom: 1px solid rgba(0,0,0,.06); }
+.bandeau-jour .point-ouvert { display: flex; flex-direction: column; gap: 8px; }
+.justifies { display: flex; flex-direction: column; gap: 4px; font-size: 14.5px; padding-top: 6px; border-top: 1px solid rgba(0,0,0,.08); }
+.form-chome { display: flex; flex-direction: column; gap: 8px; }
+.resume-ligne.rouge { border-left-color: var(--rouge); background: var(--rouge-pale); }
+.resume-ligne.jaune { border-left-color: var(--jaune); background: var(--jaune-pale); }
+ul.points { margin: 0; padding-left: 18px; font-size: 14.5px; }
+/* Accès aux problèmes du planning : visible seulement quand il y en a, et bien visible. */
+.alerte.orange { background: var(--orange-pale); color: var(--orange); border: 2px solid var(--orange); }
+.alerte-bouton { width: 100%; text-align: left; font: inherit; font-size: 15px; cursor: pointer; }
