@@ -383,3 +383,22 @@ ul.points { margin: 0; padding-left: 18px; font-size: 14.5px; }
 /* Accès aux problèmes du planning : visible seulement quand il y en a, et bien visible. */
 .alerte.orange { background: var(--orange-pale); color: var(--orange); border: 2px solid var(--orange); }
 .alerte-bouton { width: 100%; text-align: left; font: inherit; font-size: 15px; cursor: pointer; }
+
+/* ------------------------------------------------------------------ version 37 : en-tête du jour */
+.bandeau-jour .haut { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+.bandeau-jour.gris { background: var(--creux); border-left-color: #a8a39a; }
+.etat { padding: 4px 10px; border-radius: 999px; font-size: 13px; font-weight: 700; white-space: nowrap; }
+.etat.rouge { background: var(--rouge); color: #fff; }
+.etat.jaune { background: var(--jaune); color: var(--encre); }
+.etat.bleu { background: var(--bleu); color: #fff; }
+.etat.gris { background: #cfcac0; color: #3d3b3d; }
+.resume-jour { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.case-r { background: rgba(255,255,255,.65); border-radius: 8px; padding: 6px 8px; font-size: 14px; display: flex; justify-content: space-between; align-items: center; gap: 6px; }
+.case-r b { font-family: var(--titre); font-size: 20px; }
+.case-r.ko { background: var(--rouge-pale); color: var(--rouge); }
+.case-r.ok { background: var(--vert-pale); color: var(--vert); }
+.bandeau-jour.rouge .case-r:not(.ko):not(.ok) { background: var(--surface); }
+.indice { font-size: 13.5px; color: var(--gris); text-align: center; }
+.actions-jour { display: flex; gap: 6px 14px; flex-wrap: wrap; border-top: 1px solid rgba(0,0,0,.08); padding-top: 6px; }
+.form-jour { display: flex; flex-direction: column; gap: 8px; width: 100%; }
+.chome-etat { font-weight: 600; }
