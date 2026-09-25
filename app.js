@@ -12,7 +12,7 @@
  * Numéro affiché en bas de l'accueil et de l'écran de connexion.
  * À augmenter à chaque dépôt de nouveaux fichiers sur GitHub : c'est le seul numéro à changer.
  */
-const VERSION_APPLI = '40';
+const VERSION_APPLI = '41';
 
 // ---------------------------------------------------------------------------
 // Petits outils
@@ -908,11 +908,16 @@ function messageDejaPersonne(nom, pourBureau) {
     ? `${nom.trim()} est dans la liste des personnes (${p.libelle}) : utilise « ${pourBureau ? "Saisir pour quelqu'un" : 'Ajouter un gars'} ».`
     : `${nom.trim()} est dans la liste des personnes (${p.libelle}) mais inactif : à réactiver dans PERSONNES, demande au bureau.`;
 }
-/** Nom proche d'un nom de famille connu (une lettre près, noms de 4 lettres et plus) : avertir sans bloquer. */
-function avertissementNomProche(nom) {
+/** Nom proche d'un nom de famille connu (une lettre près, noms de 4 lettres et plus) : avertir sans bloquer.
+ *  Version 41 : le conseil suit l'état de la personne (inactive : à réactiver) et l'écran (bureau : « Saisir pour quelqu'un »). */
+function avertissementNomProche(nom, pourBureau) {
   const mots = normaliserNom(nom).split(' ').filter(m => m.length >= 4);
   const p = ((stock.lire('ref') || {}).personnesConnues || []).find(x => (x.nom || []).some(n => n.length >= 4 && mots.some(m => m !== n && ecart(m, n) <= 1)));
-  return p ? `Vouliez-vous dire ${p.libelle} (${(p.nom || []).join(' ')}) ? Si c'est bien lui, utilise « Ajouter un gars ». Sinon, tu peux continuer.` : '';
+  if (!p) return '';
+  const qui = `Vouliez-vous dire ${p.libelle} (${(p.nom || []).join(' ')}) ?`;
+  return p.actif
+    ? `${qui} Si c'est bien lui, utilise « ${pourBureau ? "Saisir pour quelqu'un" : 'Ajouter un gars'} ». Sinon, tu peux continuer.`
+    : `${qui} Il est inactif dans PERSONNES : si c'est bien lui, il faut le réactiver${pourBureau ? '' : ' (demande au bureau)'}. Sinon, tu peux continuer.`;
 }
 
 /** Mêmes règles que le serveur, pour prévenir avant l'envoi. */
@@ -1601,7 +1606,7 @@ ROUTES.interimaire = async function (param) {
       const m = existant ? '' : messageDejaPersonne(e.nomInterimaire, !!auNomDe);
       $('#avertNom').textContent = m;
       // Faute de frappe probable : un simple avertissement, la saisie reste possible (version 40).
-      $('#procheNom').textContent = !existant && !m ? avertissementNomProche(e.nomInterimaire) : '';
+      $('#procheNom').textContent = !existant && !m ? avertissementNomProche(e.nomInterimaire, !!auNomDe) : '';
       return m;
     };
     $('#nomInterimaire').addEventListener('input', avertir); avertir();

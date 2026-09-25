@@ -402,3 +402,7 @@ ul.points { margin: 0; padding-left: 18px; font-size: 14.5px; }
 .actions-jour { display: flex; gap: 6px 14px; flex-wrap: wrap; border-top: 1px solid rgba(0,0,0,.08); padding-top: 6px; }
 .form-jour { display: flex; flex-direction: column; gap: 8px; width: 100%; }
 .chome-etat { font-weight: 600; }
+
+/* Version 41 : un statut tient toujours sur une ligne ; c'est le nom qui passe à la ligne s'il est long. */
+.ligne-tete > .pastille { white-space: nowrap; flex-shrink: 0; }
+.ligne-tete > span:first-child { min-width: 0; overflow-wrap: anywhere; }
