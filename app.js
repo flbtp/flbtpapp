@@ -12,7 +12,7 @@
  * Numéro affiché en bas de l'accueil et de l'écran de connexion.
  * À augmenter à chaque dépôt de nouveaux fichiers sur GitHub : c'est le seul numéro à changer.
  */
-const VERSION_APPLI = '38';
+const VERSION_APPLI = '39';
 
 // ---------------------------------------------------------------------------
 // Petits outils
@@ -1744,25 +1744,31 @@ ROUTES.bureau = async function (date) {
   /** Un chantier : son rapport, son équipe (et le remplaçant d'un chef absent). La paie se coche par jour, en tête. */
   const carteChantier = c => {
     const manquantes = c.journees.filter(x => !x.journee && !x.justification).length;
+    // Version 39 : pas de rapport à montrer un jour traité hors appli (masqué, pas supprimé), ni pour une équipe
+    // dont personne n'a travaillé (il n'est alors pas exigé).
+    const horsAppli = etatJour().etat === 'HORS_APPLI';
+    const aTravaille = c.journees.some(x => x.journee);
+    const montrerRapport = !horsAppli && (c.rapport.envoye || aTravaille);
     const rapportAction = !verrou() && !c.rapport.envoye;
     return `
       <section class="bloc">
         <div class="bloc-titre">${esc(c.villes.map(nomCourt).join(' + '))}</div>
         <div class="ligne-tete">
           <span class="discret">Chef : ${esc(c.responsable || '—')}${c.deFait ? ' (chef de fait)' : c.chefAbsent ? ' (absent)' : ''}</span>
-          <span class="pastille ${c.rapport.envoye ? 'vert' : 'rouge'}">Rapport ${c.rapport.envoye ? 'envoyé' : 'manquant'}</span>
+          ${montrerRapport ? `<span class="pastille ${c.rapport.envoye ? 'vert' : 'rouge'}">Rapport ${c.rapport.envoye ? 'envoyé' : 'manquant'}</span>` : ''}
         </div>
         ${c.chefAbsent ? (c.candidatsRemplacant.length ? `<div class="champ remplacant"><label for="remp-${esc(c.responsable)}">Remplaçant (rapport et validation de l'équipe)</label>
             <select id="remp-${esc(c.responsable)}" data-remplacant="${esc(c.responsable)}" ${verrou() ? 'disabled' : ''}>${c.remplacant ? '' : '<option value="" selected disabled>Remplaçant à choisir…</option>'}${c.candidatsRemplacant.map(n => `<option ${n === c.remplacant ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select></div>`
           : '<p class="discret">Chef absent : personne de l\'équipe n\'a encore saisi sa journée, pas de remplaçant.</p>') : ''}
         ${(c.horsPlanning || []).map(h => `<p class="discret">+ ${esc(nomCourt(h.libelle))} : hors planning, déclaré par ${esc(h.declarePar.join(', '))}.</p>`).join('')}
         ${manquantes ? `<p class="discret">${manquantes} sans saisie</p>` : ''}
-        ${c.rapport.ecartRepas ? `<div class="alerte rouge">${ICONES.attention}<span><b>Repas :</b> ${esc(String(c.rapport.repasPayes))} payés au rapport, ${c.rapport.repasDeclares} déclarés par l'équipe.</span></div>`
+        ${!montrerRapport ? '' : c.rapport.ecartRepas ? `<div class="alerte rouge">${ICONES.attention}<span><b>Repas :</b> ${esc(String(c.rapport.repasPayes))} payés au rapport, ${c.rapport.repasDeclares} déclarés par l'équipe.</span></div>`
           : (c.rapport.envoye ? `<p class="discret">Repas : ${esc(String(c.rapport.repasPayes))} payés, ${c.rapport.repasDeclares} déclarés.</p>` : '')}
         ${c.journees.map(x => carte(x, c)).join('')}
         <div class="actions">
-          ${rapportAction ? `<button class="btn btn-principal btn-petit" type="button" data-rapport="${esc(c.responsable || '')}">Remplir le rapport</button>`
-            : `<button class="option" type="button" data-rapport="${esc(c.responsable || '')}">${c.rapport.envoye ? `Rapport : ${esc(c.rapport.restaurant || 'sans restaurant')}, ${esc(String(c.rapport.repasPayes))} repas, ${c.rapport.nbBl} BL` : 'Voir le rapport'}</button>`}
+          ${!montrerRapport ? '' : c.rapport.envoye
+            ? `<button class="option" type="button" data-rapport="${esc(c.responsable || '')}">Rapport : ${esc(c.rapport.restaurant || 'sans restaurant')}, ${esc(String(c.rapport.repasPayes))} repas, ${c.rapport.nbBl} BL</button>`
+            : rapportAction ? `<button class="btn btn-principal btn-petit" type="button" data-rapport="${esc(c.responsable || '')}">Remplir le rapport</button>` : ''}
           ${c.responsable && !verrou() ? `<button class="option" type="button" data-ajout-interim="${esc(c.responsable)}">+ Ajouter un intérimaire</button>` : ''}
         </div>
       </section>`;
