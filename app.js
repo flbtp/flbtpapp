@@ -12,7 +12,7 @@
  * Numéro affiché en bas de l'accueil et de l'écran de connexion.
  * À augmenter à chaque dépôt de nouveaux fichiers sur GitHub : c'est le seul numéro à changer.
  */
-const VERSION_APPLI = '43';
+const VERSION_APPLI = '45';
 
 // ---------------------------------------------------------------------------
 // Petits outils
@@ -541,10 +541,11 @@ function resumeChef(a, moi) {
   const autres = c.manquants.filter(n => n !== moi);
   if (c.manquants.includes(moi)) lignes.push('ta journée manque');
   if (autres.length) lignes.push(`${autres.length} sans saisie (${esc(autres.join(', '))})`);
-  if ((c.partis || []).length) lignes.push(`${c.partis.length} parti${c.partis.length > 1 ? 's' : ''} ailleurs`);
+  // Version 45 : les gars partis ailleurs ne sont pas une chose à faire (ils restent visibles, barrés, dans
+  // « Équipe du jour ») ; « validée » ne compte que les autres membres, jamais la journée du chef.
   if (!c.rapportEnvoye) lignes.push('rapport à envoyer');
   const rienAFaire = !lignes.length;
-  if (rienAFaire) lignes.push(`Équipe validée (${c.validees}) et rapport envoyé. Rien à faire.`);
+  if (rienAFaire) lignes.push(c.validees ? `Équipe validée (${c.validees}) et rapport envoyé. Rien à faire.` : 'Rapport envoyé. Rien à faire.');
 
   return `
     <div class="alerte ${rienAFaire ? 'vert' : (c.aValider ? 'jaune' : 'rouge')}">
@@ -552,7 +553,7 @@ function resumeChef(a, moi) {
     </div>
     <div class="duo">
       <button class="btn ${c.rapportEnvoye ? 'btn-sombre' : 'btn-principal'} btn-petit" type="button" onclick="aller('/rapport/${a.date}')">Rapport de chantier</button>
-      <button class="btn ${c.aValider ? 'btn-principal' : 'btn-sombre'} btn-petit" type="button" onclick="aller('/equipe/${a.date}')">Valider mon équipe</button>
+      <button class="btn ${c.aValider ? 'btn-principal' : 'btn-sombre'} btn-petit" type="button" id="boutonEquipe" onclick="aller('/equipe/${a.date}')">${c.aValider ? 'Valider mon équipe' : 'Mon équipe'}</button>
     </div>`;
 }
 
@@ -2269,6 +2270,12 @@ ROUTES['bureau-journee'] = async function (param) {
   const chantier = chefChoisi !== undefined ? d.chantiers.find(c => c.responsable === chefChoisi)
     : d.chantiers.find(c => c.journees.some(x => x.personne === personne));
   const e = etatInitial(date, ligne && ligne.journee, chantier ? { lieux: chantier.villes } : null);
+  // Version 45 : ce que fera « Laisser ouverte », selon la personne.
+  const menePar = d.chantiers.find(c => (c.deFait && c.responsable === personne) || c.remplacant === personne);
+  const phraseOuverte = (ligne && ligne.estChef) ? "Laisser ouverte : validée d'office à son nom, il pourra la corriger."
+    : (menePar || horsPlanning) ? 'Laisser ouverte : elle restera à valider par le bureau, il pourra la corriger.'
+    : (ligne && ligne.interimaire) ? 'Laisser ouverte : son chef la validera.'
+    : 'Laisser ouverte : son chef la validera, elle reste corrigeable.';
 
   const dessiner = () => {
     const y = window.scrollY;
@@ -2277,21 +2284,27 @@ ROUTES['bureau-journee'] = async function (param) {
         <button class="retour" type="button" aria-label="Retour" onclick="history.back()">${ICONES.retour}</button>
         <div><h1>${esc(personne)}</h1><p class="discret">${esc(dateLongue(date))} — saisie par le bureau${chefChoisi ? `, équipe de ${esc(chefChoisi)}` : horsPlanning ? ', chantier hors planning' : chefChoisi === '' ? ', sans équipe' : ''}</p></div>
       </div>
-      <div class="alerte jaune">${ICONES.attention}<span>Cette journée sera marquée « validée » d'office, au nom du bureau.</span></div>
       ${formulaireJournee(e, ref, false)}
-      <div class="pied"><button class="btn btn-principal" type="button" id="envoyer">Enregistrer la journée</button></div>`;
+      <div class="pied">
+        <div class="duo"><button class="btn btn-principal" type="button" id="envoyer">Validation bureau</button>
+          <button class="btn btn-clair" type="button" id="ouverte">Laisser ouverte</button></div>
+        <p class="discret mini-aide" id="aideOuverte">${esc(phraseOuverte)}</p>
+      </div>`;
     brancherFormulaire(e, dessiner);
-    $('#envoyer').onclick = async () => {
+    const envoyer = async valider => {
       const probleme = controler(e, false);
       if (probleme) { $('#erreur').textContent = probleme; return; }
-      const b = $('#envoyer'); b.disabled = true; b.textContent = 'Enregistrement…';
+      const b = valider ? $('#envoyer') : $('#ouverte'); const texte = b.textContent;
+      $('#envoyer').disabled = $('#ouverte').disabled = true; b.textContent = 'Enregistrement…';
       try {
-        await appel('bureau_journee', Object.assign({ personne }, donneesJournee(e), chefChoisi !== undefined ? { chef: chefChoisi } : {}));
+        await appel('bureau_journee', Object.assign({ personne, valider }, donneesJournee(e), chefChoisi !== undefined ? { chef: chefChoisi } : {}));
         oublierJour(date);
-        toast('Journée enregistrée.');
+        toast(valider ? 'Journée enregistrée et validée par le bureau.' : 'Journée enregistrée, laissée ouverte.');
         aller(apresCorrectionBureau(date));
-      } catch (err) { b.disabled = false; b.textContent = 'Enregistrer la journée'; $('#erreur').textContent = err.message; }
+      } catch (err) { $('#envoyer').disabled = $('#ouverte').disabled = false; b.textContent = texte; $('#erreur').textContent = err.message; }
     };
+    $('#envoyer').onclick = () => envoyer(true);
+    $('#ouverte').onclick = () => envoyer(false);
     window.scrollTo(0, y);
   };
   dessiner();
