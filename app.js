@@ -12,7 +12,7 @@
  * Numéro affiché en bas de l'accueil et de l'écran de connexion.
  * À augmenter à chaque dépôt de nouveaux fichiers sur GitHub : c'est le seul numéro à changer.
  */
-const VERSION_APPLI = '41';
+const VERSION_APPLI = '42';
 
 // ---------------------------------------------------------------------------
 // Petits outils
@@ -569,6 +569,13 @@ function equipeAccueil(eqj) {
     </details>`;
 }
 
+/** Un chantier de l'accueil, une fois la journée saisie (version 42) : seules les exceptions portent un repère. */
+function ligneChantierAccueil(c) {
+  const qui = c.ajoutePar && c.ajoutePar.length ? `<span class="qui-ajout">ajouté par ${esc(c.ajoutePar.join(', '))}</span>` : '';
+  const repere = c.pasFait ? '<span class="repere pas-fait">Prévu, pas fait</span>' : c.hors ? '<span class="repere hors">Hors planning</span>' : '';
+  return `<div class="ch-jour${c.pasFait ? ' pas-fait' : ''}"><span class="chantier">${esc(nomCourt(c.libelle))}${qui}</span>${repere}</div>`;
+}
+
 function dessinerAccueil(a, session) {
   const j = a.journee;
   const refus = stock.lire('refus', []);
@@ -598,7 +605,14 @@ function dessinerAccueil(a, session) {
       <button class="icone-btn" type="button" aria-label="Se déconnecter" id="sortir">${ICONES.sortie}</button>
     </div>
     ${refus.length ? `<div class="alerte rouge">${ICONES.attention}<span>${refus.map(r => `<b>${esc(r.libelle)}</b> refusé : ${esc(r.erreur)}`).join('<br>')}</span></div>` : ''}
-    ${bloc ? `
+    ${a.chantiersDuJour && a.chantiersDuJour.length && !(j && j.enAttente) ? `
+      <section class="bloc">
+        <div class="bloc-titre">${a.estResponsable ? "Chantiers de l'équipe" : 'Mes chantiers du jour'}</div>
+        <div>${a.chantiersDuJour.map(ligneChantierAccueil).join('')}</div>
+        ${bloc && bloc.taches ? `<div class="sep taches-jour"><span class="sous">Tâches du jour (planning)</span><p class="a-faire">${esc(bloc.taches)}</p></div>` : ''}
+        ${eqj && (bloc || eqj.membres.length > 1) ? equipeAccueil(eqj) : ''}
+      </section>`
+    : bloc ? `
       <section class="bloc">
         <div class="bloc-titre">Prévu au planning</div>
         <div>${libellesChantiers(bloc).map(c => `<div class="chantier">${esc(nomCourt(c))}</div>`).join('')}</div>

@@ -406,3 +406,13 @@ ul.points { margin: 0; padding-left: 18px; font-size: 14.5px; }
 /* Version 41 : un statut tient toujours sur une ligne ; c'est le nom qui passe à la ligne s'il est long. */
 .ligne-tete > .pastille { white-space: nowrap; flex-shrink: 0; }
 .ligne-tete > span:first-child { min-width: 0; overflow-wrap: anywhere; }
+
+/* Version 42 : chantiers de l'accueil une fois la journée saisie ; seules les exceptions portent un repère. */
+.ch-jour { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.ch-jour + .ch-jour { margin-top: 4px; padding-top: 4px; border-top: 1px solid var(--trait); }
+.ch-jour .chantier { min-width: 0; overflow-wrap: anywhere; }
+.ch-jour .qui-ajout { display: block; font-family: var(--texte); font-size: 13px; font-weight: 500; color: var(--gris); }
+.ch-jour.pas-fait .chantier { color: var(--gris); text-decoration: line-through; font-size: 22px; }
+.repere { white-space: nowrap; flex-shrink: 0; font-size: 13px; font-weight: 600; padding: 3px 8px; border-radius: 6px; }
+.repere.hors { background: var(--jaune-pale); color: #7a5600; }
+.repere.pas-fait { background: var(--creux); color: var(--gris); }
