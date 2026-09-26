@@ -420,3 +420,10 @@ ul.points { margin: 0; padding-left: 18px; font-size: 14.5px; }
 /* Version 43 : tâches du jour groupées par équipe quand les chantiers affichés viennent de plusieurs blocs. */
 .taches-jour .groupe-taches { display: block; margin-top: 6px; font-size: 13px; }
 .taches-jour .a-faire + .groupe-taches { margin-top: 10px; }
+
+/* Version 46 : un jour envoyé en paie en vert pâle (il se confondait avec « hors appli », gris) ; phrase d'aide du bureau décollée des boutons. */
+.bande-jours .envoye-paie { background: var(--vert-pale); color: var(--vert); }
+.bande-jours .envoye-paie small { color: var(--vert); }
+.bande-jours .weekend.envoye-paie { border-style: solid; }
+.leg-bande .l-envoye-paie { background: var(--vert-pale); border: 1px solid var(--vert); }
+#aideOuverte { margin-top: 8px; }

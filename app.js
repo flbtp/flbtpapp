@@ -12,7 +12,7 @@
  * Numéro affiché en bas de l'accueil et de l'écran de connexion.
  * À augmenter à chaque dépôt de nouveaux fichiers sur GitHub : c'est le seul numéro à changer.
  */
-const VERSION_APPLI = '45';
+const VERSION_APPLI = '46';
 
 // ---------------------------------------------------------------------------
 // Petits outils
@@ -1414,13 +1414,15 @@ ROUTES.equipe = async function (date) {
       <section class="bloc"><div class="ligne-tete"><span>${esc(m.personne)}</span><span class="pastille rouge">Pas saisie</span></div>
         <p class="discret">Prévu au planning sur ce chantier, aucune journée reçue.</p>
         <button class="btn btn-clair btn-petit" type="button" data-saisir="${esc(m.personne)}">Saisir sa journée</button></section>`;
+    // Version 46 : sa propre journée (chef de fait, remplaçant), pas encore validée par le bureau : il n'a rien à y faire.
     const pastille = j.parBureau ? ['Validée bureau', 'vert']
+      : m.estMoi && moiParBureau && aValiderStatut(j.statut) ? ['Attente bureau', '']
       : ({ SAISIE: ['À valider', 'attente'], SIGNALEE: ['À valider', 'attente'], VALIDEE_CHEF: ['Validée', 'vert'],
         VALIDEE_BUREAU: ['Validée bureau', 'vert'], EXPORTEE: ['Validée bureau', 'vert'] }[j.statut] || [j.statut, '']);
     const aValider = !j.parBureau && aValiderStatut(j.statut) && !(m.estMoi && moiParBureau);
-    // Validée ou modifiée par le bureau : plus de bouton, le chef doit savoir à qui s'adresser.
-    const bureau = m.estMoi && moiParBureau && !j.parBureau ? `<p class="discret">Ta journée est validée par le bureau.</p>${j.modifiable ? `<button class="btn btn-clair btn-petit" type="button" onclick="aller('/saisie/${date}')">Corriger ma journée</button>` : ''}`
-      : j.parBureau ? `<p class="alerte jaune mini">${ICONES.attention}<span>${m.estMoi ? 'Ta journée a été validée ou modifiée' : 'Validée ou modifiée'} par le bureau : pour toute modification, adresse-toi au bureau.</span></p>` : '';
+    // Validée par le bureau : plus de bouton, le chef doit savoir à qui s'adresser.
+    const bureau = m.estMoi && moiParBureau && !j.parBureau ? `<p class="discret">${aValiderStatut(j.statut) ? 'Ta journée sera validée par le bureau.' : 'Ta journée est validée.'}</p>${j.modifiable ? `<button class="btn btn-clair btn-petit" type="button" onclick="aller('/saisie/${date}')">Corriger ma journée</button>` : ''}`
+      : j.parBureau ? `<p class="alerte jaune mini">${ICONES.attention}<span>${m.estMoi ? 'Ta journée a été validée' : 'Validée'} par le bureau : pour toute modification, adresse-toi au bureau.</span></p>` : '';
     return `
       <section class="bloc" ${aValider ? 'style="border:2px solid var(--jaune)"' : ''}>
         <div class="ligne-tete"><span>${esc(m.personne)}${m.estMoi ? role() : ''}${m.interimaire ? ' <span class="discret">(intérim)</span>' : ''}${m.origine ? ` <span class="discret">(${esc(m.origine)})</span>` : ''}</span>
@@ -1709,9 +1711,9 @@ function apresCorrectionBureau(date) {
 
 /** États de paie d'un jour (voir etatsJours côté serveur) : libellé court de la bande et classe. */
 // Version 36 : rouge = un problème ; jaune = tout est réglé, le bureau doit agir (valider) ; bleu = prêt, rien
-// à faire ; gris clair = terminé (envoyé ou hors appli), qui s'efface.
+// à faire ; vert pâle = envoyé en paie (version 46) ; gris clair = traité hors appli, qui s'efface.
 const ETATS_JOUR = {
-  REGLER: ['', 'regler'], A_COCHER: ['→ valider', 'avalider'], ENVOI: ['✓ prêt', 'envoi'], ENVOYE: ['envoyé', 'fini'],
+  REGLER: ['', 'regler'], A_COCHER: ['→ valider', 'avalider'], ENVOI: ['✓ prêt', 'envoi'], ENVOYE: ['envoyé', 'envoye-paie'],
   HORS_APPLI: ['hors appli', 'fini'], EN_COURS: ['en cours', 'en-cours'], AVENIR: ['—', 'avenir'], VIDE: ['·', 'vide'],
   CHOME: ['chômé', 'vide'], HORS_CONTROLE: ['·', 'vide'],
 };
@@ -1891,7 +1893,7 @@ ROUTES.bureau = async function (date) {
     if (j.etat === 'HORS_APPLI') actions.push(`<button class="option" type="button" data-paie="ANNULER_HORS_APPLI">Annuler : traiter ce jour dans l'appli</button>`);
     const [couleur, etiquette] = {
       REGLER: ['rouge', `${j.points} point${j.points > 1 ? 's' : ''} à régler`], A_COCHER: ['jaune', '→ à valider'],
-      ENVOI: ['bleu', "✓ prêt, dans l'envoi"], ENVOYE: ['gris', 'Envoyé'], HORS_APPLI: ['gris', 'Traité hors appli'],
+      ENVOI: ['bleu', "✓ prêt, dans l'envoi"], ENVOYE: ['vert', 'Envoyé'], HORS_APPLI: ['gris', 'Traité hors appli'],
       EN_COURS: ['gris', 'En cours'], AVENIR: ['gris', 'À venir'], VIDE: ['gris', 'Rien à traiter'], CHOME: ['gris', 'Jour chômé'],
       HORS_CONTROLE: ['gris', 'Avant la mise en service'],
     }[j.etat] || ['gris', ''];
@@ -1940,7 +1942,7 @@ ROUTES.bureau = async function (date) {
             class="${cls} ${j.weekend ? 'weekend' : ''} ${new Date(j.date + 'T12:00:00Z').getUTCDay() === 1 ? 'lundi' : ''}">
             <small>${esc(jourCourt(j.date))}</small><b>${Number(j.date.slice(8))}</b>${j.etat === 'REGLER' ? `<span class="badge">${j.points}</span>` : esc(lib)}</button>`; }).join('')}
       </div>
-      <div class="leg-bande"><span><i class="l-regler"></i>à régler</span><span><i class="l-avalider"></i>à valider</span><span><i class="l-envoi"></i>prêt, dans l'envoi</span><span><i class="l-fini"></i>envoyé</span></div>
+      <div class="leg-bande"><span><i class="l-regler"></i>à régler</span><span><i class="l-avalider"></i>à valider</span><span><i class="l-envoi"></i>prêt, dans l'envoi</span><span><i class="l-envoye-paie"></i>envoyé</span><span><i class="l-fini"></i>hors appli</span></div>
 
       ${bandeauJour()}
 
