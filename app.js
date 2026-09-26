@@ -12,7 +12,7 @@
  * Numéro affiché en bas de l'accueil et de l'écran de connexion.
  * À augmenter à chaque dépôt de nouveaux fichiers sur GitHub : c'est le seul numéro à changer.
  */
-const VERSION_APPLI = '42';
+const VERSION_APPLI = '43';
 
 // ---------------------------------------------------------------------------
 // Petits outils
@@ -565,7 +565,7 @@ function equipeAccueil(eqj) {
   return `<details class="sep depliant">
       <summary>Équipe du jour (${n})</summary>
       ${eqj.membres.map(m => `<div class="equipier"><span class="qui">${esc(m.personne)}${qui(m)}</span><span class="quoi"></span></div>`).join('')}
-      ${(eqj.partis || []).map(x => `<div class="equipier parti"><span class="qui"><s>${esc(x.personne)}</s> <span class="discret">(${x.seul ? 'seul sur un chantier hors planning' : x.chez ? `parti chez ${esc(x.chez)}` : 'sans équipe'})</span></span><span class="quoi"></span></div>`).join('')}
+      ${(eqj.partis || []).map(x => `<div class="equipier parti"><span class="qui"><s>${esc(x.personne)}</s> <span class="discret">(${x.seul ? 'parti sur un chantier hors planning' : x.chez ? `parti chez ${esc(x.chez)}` : 'sans équipe'})</span></span><span class="quoi"></span></div>`).join('')}
     </details>`;
 }
 
@@ -574,6 +574,14 @@ function ligneChantierAccueil(c) {
   const qui = c.ajoutePar && c.ajoutePar.length ? `<span class="qui-ajout">ajouté par ${esc(c.ajoutePar.join(', '))}</span>` : '';
   const repere = c.pasFait ? '<span class="repere pas-fait">Prévu, pas fait</span>' : c.hors ? '<span class="repere hors">Hors planning</span>' : '';
   return `<div class="ch-jour${c.pasFait ? ' pas-fait' : ''}"><span class="chantier">${esc(nomCourt(c.libelle))}${qui}</span>${repere}</div>`;
+}
+
+/** Tâches du planning qui suivent les chantiers affichés (version 43) : une par bloc, avec son équipe s'il y en a plusieurs. */
+function tachesAccueil(groupes) {
+  if (!groupes || !groupes.length) return '';
+  const plusieurs = groupes.length > 1;
+  return `<div class="sep taches-jour"><span class="sous">Tâches du jour (planning)</span>
+    ${groupes.map(g => `${plusieurs ? `<span class="sous groupe-taches">Équipe de ${esc(g.responsable)}</span>` : ''}<p class="a-faire">${esc(g.taches)}</p>`).join('')}</div>`;
 }
 
 function dessinerAccueil(a, session) {
@@ -609,7 +617,7 @@ function dessinerAccueil(a, session) {
       <section class="bloc">
         <div class="bloc-titre">${a.estResponsable ? "Chantiers de l'équipe" : 'Mes chantiers du jour'}</div>
         <div>${a.chantiersDuJour.map(ligneChantierAccueil).join('')}</div>
-        ${bloc && bloc.taches ? `<div class="sep taches-jour"><span class="sous">Tâches du jour (planning)</span><p class="a-faire">${esc(bloc.taches)}</p></div>` : ''}
+        ${tachesAccueil(a.tachesDuJour)}
         ${eqj && (bloc || eqj.membres.length > 1) ? equipeAccueil(eqj) : ''}
       </section>`
     : bloc ? `
@@ -1443,7 +1451,7 @@ ROUTES.equipe = async function (date) {
       ${d.remplace ? `<div class="alerte jaune">${ICONES.attention}<span>Tu remplaces <b>${esc(d.remplace)}</b> (absent). Ta propre journée est validée par le bureau.</span></div>` : ''}
       ${d.membres.map(carte).join('')}
       ${(d.partis || []).map(x => `<section class="bloc"><div class="ligne-tete"><span>${esc(x.personne)}</span><span class="pastille">Parti</span></div>
-        <p class="discret">${x.seul ? "Prévu avec toi ce matin, il a travaillé seul sur un chantier hors planning : il en fait le rapport, sa journée est validée par le bureau."
+        <p class="discret">${x.seul ? "Prévu avec toi ce matin, il est parti sur un chantier hors planning : il en est le chef (rapport), sa journée est validée par le bureau."
           : `Prévu avec toi ce matin, il a travaillé avec l'équipe de ${esc(x.chez || '—')} : c'est ce chef qui valide sa journée.`}</p></section>`).join('')}
       ${d.repas.payes === null ? `<div class="alerte jaune">${ICONES.attention}<span>Rapport de chantier pas encore envoyé : les repas ne peuvent pas être contrôlés.</span></div>`
         : d.repas.ecart ? `<div class="alerte rouge">${ICONES.attention}<span><b>Repas :</b> ${d.repas.payes} payés au rapport, ${d.repas.equipe} déclarés par l'équipe.</span></div>`

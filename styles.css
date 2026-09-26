@@ -416,3 +416,7 @@ ul.points { margin: 0; padding-left: 18px; font-size: 14.5px; }
 .repere { white-space: nowrap; flex-shrink: 0; font-size: 13px; font-weight: 600; padding: 3px 8px; border-radius: 6px; }
 .repere.hors { background: var(--jaune-pale); color: #7a5600; }
 .repere.pas-fait { background: var(--creux); color: var(--gris); }
+
+/* Version 43 : tâches du jour groupées par équipe quand les chantiers affichés viennent de plusieurs blocs. */
+.taches-jour .groupe-taches { display: block; margin-top: 6px; font-size: 13px; }
+.taches-jour .a-faire + .groupe-taches { margin-top: 10px; }
