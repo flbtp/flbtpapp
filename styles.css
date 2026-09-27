@@ -59,6 +59,8 @@ p { margin: 0; }
 }
 .logo { width: 220px; max-width: 70%; height: auto; display: block; }
 .embleme { width: 34px; height: auto; flex-shrink: 0; }
+/* Version 48 : appui long sur l'emblème de l'accueil → diagnostic ; pas de menu « Enregistrer l'image » ni de sélection. */
+.entete .embleme { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; touch-action: manipulation; }
 
 /* Blocs */
 .bloc { background: var(--surface); border-radius: 14px; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
@@ -427,3 +429,18 @@ ul.points { margin: 0; padding-left: 18px; font-size: 14.5px; }
 .bande-jours .weekend.envoye-paie { border-style: solid; }
 .leg-bande .l-envoye-paie { background: var(--vert-pale); border: 1px solid var(--vert); }
 #aideOuverte { margin-top: 8px; }
+
+/* ------------------------------------------------------------------ version 48 */
+/* Bons de livraison : une case envoyée s'ouvre en grand. */
+.photos button.vignette { border: none; padding: 0; font: inherit; color: inherit; cursor: pointer; width: 100%; }
+.photos button.vignette:disabled { cursor: default; }
+.photos .vignette .voir { position: absolute; inset: 0; display: grid; place-items: center; padding: 6px; font-size: 12px; color: var(--gris); text-align: center; }
+.visionneuse { position: fixed; inset: 0; z-index: 60; background: #111; color: #fff; display: flex; flex-direction: column; }
+.visionneuse-tete { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 16px; padding-top: max(10px, env(safe-area-inset-top)); font-weight: 600; }
+.visionneuse-tete .icone-btn { font-size: 28px; line-height: 1; color: #fff; background: rgba(255,255,255,.12); }
+.visionneuse-corps { flex: 1; overflow: auto; display: grid; place-items: center; -webkit-overflow-scrolling: touch; }
+.visionneuse-corps img { max-width: 100%; max-height: 100%; object-fit: contain; cursor: zoom-in; }
+.visionneuse-corps.taille-reelle { place-items: start; }
+.visionneuse-corps.taille-reelle img { max-width: none; max-height: none; cursor: zoom-out; }
+.visionneuse-corps .discret { color: #bbb; }
+.visionneuse-corps .erreur-champ { color: #ff9b8f; padding: 16px; text-align: center; }

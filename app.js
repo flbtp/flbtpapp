@@ -9,10 +9,10 @@
 'use strict';
 
 /**
- * Numéro affiché en bas de l'accueil et de l'écran de connexion.
+ * Numéro affiché sur l'écran de connexion et l'écran bureau (plus sur l'accueil des gars : version 48).
  * À augmenter à chaque dépôt de nouveaux fichiers sur GitHub : c'est le seul numéro à changer.
  */
-const VERSION_APPLI = '47';
+const VERSION_APPLI = '48';
 
 // ---------------------------------------------------------------------------
 // Petits outils
@@ -87,10 +87,10 @@ const ICONES = {
 class HorsReseau extends Error {}
 class RefusServeur extends Error {}
 
-const LECTURES = ['accueil', 'equipe', 'rapport', 'referentiels', 'liste_personnes'];
+const LECTURES = ['accueil', 'equipe', 'rapport', 'referentiels', 'liste_personnes', 'photo_bl'];
 const enVol = new Map();
 
-/** Garde les 30 derniers appels pour l'écran de diagnostic (appui sur le numéro de version). */
+/** Garde les 30 derniers appels pour l'écran de diagnostic (voir ROUTES.diagnostic pour y accéder). */
 function tracer(action, debut, issue) {
   const t = stock.lire('diag', []);
   t.unshift({ h: new Date().toLocaleTimeString('fr-FR'), action, ms: Date.now() - debut, issue });
@@ -653,9 +653,9 @@ function dessinerAccueil(a, session) {
             <b>${esc(jourCourt(s.date))}</b>${cls === 'ok' ? ICONES.ok : '<span style="height:18px"></span>'}<small>${esc(lib)}</small></button>`;
         }).join('')}
       </div>
-      <button type="button" class="version" onclick="aller('/diagnostic')">Version ${esc(VERSION_APPLI)}</button>
     </div>`;
   $('#sortir').onclick = demanderDeconnexion;
+  appuiLong($('.entete .embleme'), () => aller('/diagnostic'));
   $$('[data-jour]').forEach(b => b.onclick = () => aller('/saisie/' + b.dataset.jour));
   if (refus.length) stock.effacer('refus');
 }
@@ -1148,8 +1148,8 @@ function optionsMateriaux(liste, choisi) {
 }
 
 /**
- * Petites vignettes (≈ 10 Ko) des BL envoyés depuis ce téléphone. Le serveur ne renvoie que des liens
- * Drive, illisibles sans compte : sans elles, un BL déjà envoyé n'apparaîtrait qu'en case grise.
+ * Petites vignettes (≈ 10 Ko) des BL envoyés depuis ce téléphone, pour que la case d'un BL déjà envoyé
+ * ne soit pas grise. La photo en grand se demande au serveur en touchant la case (version 48).
  * Gardées pour les 10 derniers jours ; si la mémoire manque, on s'en passe.
  */
 const CLE_APERCUS = 'flbtp.apercusBl';
@@ -1179,6 +1179,38 @@ async function redimensionner(fichier, cote = 1600, qualite = 0.78) {
   } finally { URL.revokeObjectURL(url); }
 }
 
+/**
+ * Photo en plein écran (version 48). « charger » renvoie l'image (data URL). Toucher la photo passe de
+ * « tout l'écran » à la taille réelle, que l'on parcourt du doigt ; « × » ou le retour du téléphone ferme.
+ */
+function voirPhoto(titre, charger) {
+  const voile = document.createElement('div');
+  voile.className = 'visionneuse';
+  voile.setAttribute('role', 'dialog');
+  voile.setAttribute('aria-modal', 'true');
+  voile.innerHTML = `
+    <div class="visionneuse-tete"><span>${esc(nomCourt(titre))}</span>
+      <button type="button" class="icone-btn" aria-label="Fermer" data-fermer>×</button></div>
+    <div class="visionneuse-corps"><p class="discret">Chargement…</p></div>`;
+  document.body.appendChild(voile);
+  const fermer = () => { voile.remove(); window.removeEventListener('popstate', surRetour); };
+  const surRetour = () => fermer();
+  // Le bouton retour du téléphone ferme la photo sans quitter le rapport.
+  history.pushState({ visionneuse: true }, '');
+  window.addEventListener('popstate', surRetour);
+  voile.querySelector('[data-fermer]').onclick = () => history.back();
+  const corps = voile.querySelector('.visionneuse-corps');
+  charger().then(src => {
+    if (!document.body.contains(voile)) return;
+    corps.innerHTML = `<img src="${src}" alt="Bon de livraison">`;
+    const img = corps.querySelector('img');
+    img.onclick = () => corps.classList.toggle('taille-reelle');
+  }, err => {
+    if (!document.body.contains(voile)) return;
+    corps.innerHTML = `<p class="erreur-champ">${esc(err.message || 'Photo indisponible.')}</p>`;
+  });
+}
+
 ROUTES.rapport = async function (param) {
   const [dateBrute, responsableEncode] = String(param || '').split('/');
   const date = /^\d{4}-\d{2}-\d{2}$/.test(dateBrute || '') ? dateBrute : aujourdhui();
@@ -1196,7 +1228,7 @@ ROUTES.rapport = async function (param) {
     chantiers: d.chantiers.map(c => ({
       libelle: c.libelle, client: c.client, commune: c.commune, remarques: c.remarques || '', hors: !!c.hors, declarePar: c.declarePar || [],
       avancement: c.avancement.map(x => ({ ...x })), materiaux: c.materiaux.map(x => ({ ...x })),
-      blEnvoyes: c.bl.length, photos: [],
+      bl: c.bl, photos: [],
     })),
     ouvert: 0,
   };
@@ -1241,12 +1273,12 @@ ROUTES.rapport = async function (param) {
 
       <h2>Bons de livraison</h2>
       <div class="photos">
-        ${Array.from({ length: c.blEnvoyes }).map((_, k) => {
+        ${c.bl.map((b, k) => {
           const vu = apercusBl(date, c.libelle)[k];
-          return `<div class="vignette" ${vu ? `style="background-image:url('${vu}')"` : ''}><em>Envoyé</em></div>`;
+          return `<button type="button" class="vignette" data-voir="${i}-${k}" aria-label="Voir le bon de livraison" ${vu ? `style="background-image:url('${vu}')"` : ''}>${vu ? '' : '<span class="voir">Toucher pour voir</span>'}<em>Envoyé</em></button>`;
         }).join('')}
-        ${c.photos.map(ph => `<div class="vignette ${ph.etat}" ${ph.apercu ? `style="background-image:url('${ph.apercu}')"` : ''}>
-          <em>${{ prep: 'Préparation…', envoi: 'Envoi…', ok: 'Envoyé', attente: 'En attente', echec: 'Échec' }[ph.etat]}</em></div>`).join('')}
+        ${c.photos.map((ph, k) => `<button type="button" class="vignette ${ph.etat}" ${ph.image ? `data-voir-local="${i}-${k}"` : 'disabled'} aria-label="Voir la photo" ${ph.apercu ? `style="background-image:url('${ph.apercu}')"` : ''}>
+          <em>${{ prep: 'Préparation…', envoi: 'Envoi…', ok: 'Envoyé', attente: 'En attente', echec: 'Échec' }[ph.etat]}</em></button>`).join('')}
         <label class="prendre">${ICONES.photo}Photo<input type="file" accept="image/*" capture="environment" data-photo="${i}"></label>
       </div>
 
@@ -1338,7 +1370,7 @@ ROUTES.rapport = async function (param) {
       const redessiner = () => { if (toujoursIci()) dessiner(); };
       try {
         const [image, apercu] = await Promise.all([redimensionner(f), redimensionner(f, 240, 0.6)]);
-        ph.apercu = apercu; ph.etat = 'envoi'; redessiner();
+        ph.apercu = apercu; ph.image = image; ph.etat = 'envoi'; redessiner();
         // Une photo = un envoi : si le réseau coupe, on ne perd pas tout le rapport.
         const r = await envoyer('ajouter_bl', { date, auNomDe, chantier: c.libelle, image }, `Photo de BL — ${c.libelle}`);
         ph.etat = r.enAttente ? 'attente' : 'ok';
@@ -1350,10 +1382,22 @@ ROUTES.rapport = async function (param) {
       }
       redessiner();
     });
+    // Version 48 : un BL envoyé s'ouvre en grand (photo lue dans Drive par le serveur) ; une photo pas
+    // encore partie, depuis le téléphone.
+    $$('[data-voir]').forEach(b => b.onclick = () => {
+      const [ci, k] = b.dataset.voir.split('-').map(Number);
+      const bl = e.chantiers[ci].bl[k];
+      voirPhoto(e.chantiers[ci].libelle, () => appel('photo_bl', { date, auNomDe, id: bl.id }).then(r => r.image));
+    });
+    $$('[data-voir-local]').forEach(b => b.onclick = () => {
+      const [ci, k] = b.dataset.voirLocal.split('-').map(Number);
+      const c = e.chantiers[ci];
+      voirPhoto(c.libelle, () => Promise.resolve(c.photos[k].image));
+    });
     if ($('#envoyer')) $('#envoyer').onclick = soumettre;
-    // Lecture seule : on garde les onglets des chantiers et le retour, tout le reste est grisé.
+    // Lecture seule : on garde les onglets des chantiers, les photos et le retour, tout le reste est grisé.
     if (d.verrouille) {
-      $$('#app input, #app select, #app textarea, #app button:not([data-onglet]):not(.retour)').forEach(x => { x.disabled = true; });
+      $$('#app input, #app select, #app textarea, #app button:not([data-onglet]):not(.retour):not([data-voir]):not([data-voir-local])').forEach(x => { x.disabled = true; });
       $$('#app .prendre, #app .btn-ajout, #app .suppr').forEach(x => { x.hidden = true; });
     }
     window.scrollTo(0, y);
@@ -2317,8 +2361,26 @@ ROUTES['bureau-journee'] = async function (param) {
 };
 
 // ---------------------------------------------------------------------------
-// Écran : diagnostic (appui sur le numéro de version)
+// Écran : diagnostic. Le bureau l'ouvre par son bouton « Version » ; les gars et les chefs, qui n'ont plus
+// ce bouton (version 48), par un appui long sur l'emblème de l'accueil, si le bureau le leur demande.
 // ---------------------------------------------------------------------------
+
+/** Appui maintenu 2 secondes sur un élément ; un glissement du doigt (défilement) l'annule. */
+function appuiLong(el, action) {
+  if (!el) return;
+  let minuterie = null, depart = null;
+  const annuler = () => { clearTimeout(minuterie); minuterie = null; };
+  el.addEventListener('pointerdown', ev => {
+    depart = [ev.clientX, ev.clientY];
+    annuler();
+    minuterie = setTimeout(() => { minuterie = null; action(); }, 2000);
+  });
+  el.addEventListener('pointermove', ev => {
+    if (minuterie && depart && Math.hypot(ev.clientX - depart[0], ev.clientY - depart[1]) > 10) annuler();
+  });
+  ['pointerup', 'pointercancel', 'pointerleave'].forEach(t => el.addEventListener(t, annuler));
+  el.addEventListener('contextmenu', ev => ev.preventDefault());    // pas de menu « Enregistrer l'image »
+}
 
 ROUTES.diagnostic = function () {
   const t = stock.lire('diag', []);
