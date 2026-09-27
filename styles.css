@@ -367,7 +367,7 @@ button.compteur { cursor: pointer; }
 /* Jour affiché : cadre jaune épais et repère dessous, visibles sur toutes les couleurs. */
 .bande-jours { padding-bottom: 10px; }
 .bande-jours button[aria-current="true"] { box-shadow: none; outline: 3px solid var(--encre); outline-offset: -3px; position: relative; }
-.bande-jours button[aria-current="true"]::after { content: ''; position: absolute; left: 50%; bottom: -9px; transform: translateX(-50%);
+.bande-jours button[aria-current="true"]::after { content: ''; position: absolute; left: 50%; bottom: -14px; transform: translateX(-50%);
   border: 6px solid transparent; border-top-color: var(--encre); }
 .leg-bande .l-avalider { background: var(--jaune-pale); border: 1px solid var(--jaune); }
 .leg-bande .l-fini { background: var(--creux); border: 1px solid var(--trait); }

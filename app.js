@@ -12,7 +12,7 @@
  * Numéro affiché en bas de l'accueil et de l'écran de connexion.
  * À augmenter à chaque dépôt de nouveaux fichiers sur GitHub : c'est le seul numéro à changer.
  */
-const VERSION_APPLI = '46';
+const VERSION_APPLI = '47';
 
 // ---------------------------------------------------------------------------
 // Petits outils
@@ -465,6 +465,10 @@ function nomCourt(libelle) {
   return String(libelle || '').replace(/^\s*\d+\s*·\s*/, '');
 }
 
+/** Ordre alphabétique du nom affiché (sans numéro), accents et majuscules ignorés (version 47). */
+const ordreAlpha = new Intl.Collator('fr', { sensitivity: 'base', numeric: true });
+const parNomCourt = (a, b) => ordreAlpha.compare(nomCourt(a), nomCourt(b));
+
 /** Le libellé complet du chantier (numéro, client, commune) ; les communes seules avant la bascule. */
 function libellesChantiers(bloc) {
   if (!bloc) return [];
@@ -769,7 +773,7 @@ function formulaireJournee(e, ref, interimaire, options = {}) {
         <div class="chips">${e.chantiers.map(c => `<span class="chip">${esc(nomCourt(c))}<button type="button" data-retirer="${esc(c)}" aria-label="Retirer ${esc(c)}">×</button></span>`).join('') || '<span class="discret">Aucun chantier choisi</span>'}</div>
         <select id="ajoutChantier" aria-label="Ajouter un chantier">
           <option value="">+ Ajouter un chantier</option>
-          ${chantiers.filter(c => !e.chantiers.includes(c.libelle)).map(c => `<option value="${esc(c.libelle)}">${esc(nomCourt(c.libelle))}</option>`).join('')}
+          ${chantiers.filter(c => !e.chantiers.includes(c.libelle)).sort((a, b) => parNomCourt(a.libelle, b.libelle)).map(c => `<option value="${esc(c.libelle)}">${esc(nomCourt(c.libelle))}</option>`).join('')}
         </select>
       </div>`}
       <div class="champ">
@@ -779,7 +783,7 @@ function formulaireJournee(e, ref, interimaire, options = {}) {
           ${e.chantiers.length ? `<optgroup label="Sur le chantier">${e.chantiers.map(c => `<option value="${esc(c)}" ${c === e.lieuEmbauche ? 'selected' : ''}>${esc(nomCourt(c))}</option>`).join('')}</optgroup>` : ''}
           <optgroup label="Au dépôt"><option value="${esc(ref.depot)}" ${e.lieuEmbauche === ref.depot ? 'selected' : ''}>Dépôt d'Objat</option></optgroup>
           <optgroup label="Ailleurs (fournisseur, autre commune)">
-            ${communes.filter(l => !e.chantiers.includes(l.libelle)).map(l => `<option ${l.libelle === e.lieuEmbauche ? 'selected' : ''}>${esc(l.libelle)}</option>`).join('')}
+            ${communes.filter(l => !e.chantiers.includes(l.libelle)).sort((a, b) => parNomCourt(a.libelle, b.libelle)).map(l => `<option ${l.libelle === e.lieuEmbauche ? 'selected' : ''}>${esc(l.libelle)}</option>`).join('')}
           </optgroup>
         </select>
       </div>
