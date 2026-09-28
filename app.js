@@ -12,7 +12,7 @@
  * Numéro affiché sur l'écran de connexion et l'écran bureau (plus sur l'accueil des gars : version 48).
  * À augmenter à chaque dépôt de nouveaux fichiers sur GitHub : c'est le seul numéro à changer.
  */
-const VERSION_APPLI = '48';
+const VERSION_APPLI = '49';
 
 // ---------------------------------------------------------------------------
 // Petits outils
@@ -73,6 +73,7 @@ const ICONES = {
   retour: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 12H5"/><path d="M11 18l-6-6 6-6"/></svg>',
   sortie: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/></svg>',
   ok: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg>',
+  cadenas: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>',
   horloge: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
   attention: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l10 18H2z"/><path d="M12 10v5"/><path d="M12 18h.01"/></svg>',
   photo: '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>',
@@ -505,7 +506,11 @@ const LIBELLES_STATUT = {
   SAISIE: ['Envoyée', 'saisie'], SIGNALEE: ['Envoyée', 'saisie'], VALIDEE_CHEF: ['Validée', 'ok'],
   VALIDEE_BUREAU: ['Validée', 'ok'], EXPORTEE: ['Validée', 'ok'], NON_SAISIE: ['À saisir', 'a-faire'], A_VENIR: ['—', ''],
   JUSTIFIEE: ['Justifiée', 'justifiee'], WEEKEND: ['—', 'weekend'],
+  BOUCLEE: ['Bouclée', 'bouclee'],
 };
+// Version 49 : jour dans l'envoi en paie, envoyé ou traité hors appli (le serveur le dit avec « boucle »).
+const MESSAGE_BOUCLE = 'Ce jour est bouclé : adresse-toi au bureau pour toute correction.';
+const jourDeSemaine = (a, date) => ((a && a.semaine) || []).find(x => x.date === date) || {};
 const messageAbsence = motif => `Journée justifiée par le bureau (${motif}). Vois avec le bureau si nécessaire.`;
 
 ROUTES.accueil = async function () {
@@ -595,7 +600,9 @@ function dessinerAccueil(a, session) {
   const bloc = a.bloc;
 
   let action;
+  const boucle = !!jourDeSemaine(a, a.date).boucle;
   if (!j && a.justification) action = `<div class="alerte jaune">${ICONES.attention}<span>${esc(messageAbsence(a.justification))}</span></div>`;
+  else if (boucle && !(j && j.enAttente)) action = `<div class="alerte gris">${ICONES.cadenas}<span>${j ? `Journée bouclée : ${esc(j.hEmbauche)}–${esc(j.hPause)} · ${esc(j.hReprise)}–${esc(j.hDebauche)}. Pour toute correction, adresse-toi au bureau.` : esc(MESSAGE_BOUCLE)}</span></div>`;
   else if (!j) action = `<button class="btn btn-principal" type="button" onclick="aller('/saisie/${a.date}')">Saisir ma journée</button>`;
   else if (j.enAttente) action = `<div class="alerte jaune">${ICONES.horloge}<span>Journée gardée sur ton téléphone : ${esc(j.hEmbauche)}–${esc(j.hPause)} · ${esc(j.hReprise)}–${esc(j.hDebauche)}. Elle partira dès que possible.</span></div>`;
   else if (j.modifiable) action = `<div class="alerte vert">${ICONES.ok}<span>${j.statut === 'VALIDEE_CHEF' ? 'Journée validée' : 'Journée envoyée'} : ${esc(j.hEmbauche)}–${esc(j.hPause)} · ${esc(j.hReprise)}–${esc(j.hDebauche)}</span></div>
@@ -604,11 +611,7 @@ function dessinerAccueil(a, session) {
   else action = `<div class="alerte vert">${ICONES.ok}<span>Journée validée. Pour une correction, vois avec ton chef ou le bureau.</span></div>`;
 
   // Le bureau ne saisit pas d'heures : son accueil est son écran.
-  // Session ouverte avant la version 32 : le rôle bureau n'était pas gardé. On l'apprend ici.
-  if (a.estBureau) {
-    if (!session.bureau) { session.bureau = true; stock.ecrire('session', session); }
-    return aller('/bureau');
-  }
+  if (a.estBureau) return aller('/bureau');
   const eqj = a.equipeDuJour;
 
   APP().innerHTML = `
@@ -646,11 +649,12 @@ function dessinerAccueil(a, session) {
       <span class="sous">Ma semaine</span>
       <div class="semaine">
         ${a.semaine.map(s => {
-          const [lib, cls] = LIBELLES_STATUT[s.weekend && s.statut === 'NON_SAISIE' ? 'WEEKEND' : s.statut] || ['—', ''];
+          const [lib, cls] = LIBELLES_STATUT[s.boucle && s.statut !== 'JUSTIFIEE' ? 'BOUCLEE' : s.weekend && s.statut === 'NON_SAISIE' ? 'WEEKEND' : s.statut] || ['—', ''];
           // Une journée validée d'office (celle du chef) reste corrigeable : le serveur le dit avec « modifiable ».
-          const cliquable = ['NON_SAISIE', 'SIGNALEE', 'SAISIE'].includes(s.statut) || s.modifiable === true;
+          // Version 49 : un jour bouclé (ou que le serveur dit non modifiable) ne s'ouvre plus, même pas saisi.
+          const cliquable = !s.boucle && s.modifiable !== false && (['NON_SAISIE', 'SIGNALEE', 'SAISIE'].includes(s.statut) || s.modifiable === true);
           return `<button type="button" class="jour ${cls}" ${cliquable ? `data-jour="${s.date}"` : 'disabled'} aria-label="${esc(dateLongue(s.date))} : ${esc(lib)}${s.justification ? ' — ' + esc(s.justification) : ''}" ${s.justification ? `title="${esc(messageAbsence(s.justification))}"` : ''}>
-            <b>${esc(jourCourt(s.date))}</b>${cls === 'ok' ? ICONES.ok : '<span style="height:18px"></span>'}<small>${esc(lib)}</small></button>`;
+            <b>${esc(jourCourt(s.date))}</b>${cls === 'ok' ? ICONES.ok : cls === 'bouclee' ? ICONES.cadenas : '<span style="height:18px"></span>'}<small>${esc(lib)}</small></button>`;
         }).join('')}
       </div>
     </div>`;
@@ -743,7 +747,7 @@ function choix(nom, options, valeur, n) {
  */
 function formulaireJournee(e, ref, interimaire, options = {}) {
   const communes = ref.lieux.filter(l => l.type !== 'DEPOT');
-  const chantiers = ref.chantiers && ref.chantiers.length ? ref.chantiers : communes.map(l => ({ libelle: l.libelle }));
+  const chantiers = ref.chantiers;
   const total = (() => {
     const [a, b, c, d] = [e.hEmbauche, e.hPause, e.hReprise, e.hDebauche].map(minutes);
     if ([a, b, c, d].some(x => x === null) || !(a < b && b <= c && c < d)) return null;
@@ -907,7 +911,6 @@ function normaliserNom(texte) {
 function correspondPersonne(p, texte) {
   const n = normaliserNom(texte);
   if (!n) return false;
-  if (!p.exactes) return (p.cles || []).includes(n);            // référentiels gardés d'avant la version 40
   if (p.exactes.includes(n)) return true;
   const mots = n.split(' '), nom = p.nom || [], prenom = p.prenom || [];
   if (!nom.length) return false;
@@ -1024,6 +1027,7 @@ ROUTES.saisie = async function (date) {
       a = null;
     }
   }
+  if (jourDeSemaine(a, date).boucle) { toast(MESSAGE_BOUCLE); return aller(accueilPerso()); }
   if (a && a.journee && !a.journee.modifiable) { toast('Journée déjà validée.'); return aller(accueilPerso()); }
   const absence = a && !a.journee && (a.justification || ((a.semaine || []).find(x => x.date === date) || {}).justification);
   if (absence) { toast(messageAbsence(absence)); return aller(accueilPerso()); }
@@ -1715,12 +1719,6 @@ const ETIQUETTES = {
 };
 
 /**
- * Une correction ouverte depuis la liste des contrôles y ramène une fois enregistrée :
- * le bureau enchaîne les points à corriger sans repasser par l'écran du jour.
- */
-let retourControles = false;
-
-/**
  * Bande de jours défilable : au doigt, le défilement horizontal natif ; à la souris, on la fait
  * glisser en maintenant le clic. Un glissement ne compte pas comme un choix de jour.
  */
@@ -1752,9 +1750,7 @@ function brancherBande(bande, choisir) {
   });
 }
 function apresCorrectionBureau(date) {
-  const vers = retourControles ? '/controles' : '/bureau/' + date;
-  retourControles = false;
-  return vers;
+  return '/bureau/' + date;
 }
 
 /** États de paie d'un jour (voir etatsJours côté serveur) : libellé court de la bande et classe. */
@@ -1780,7 +1776,6 @@ async function paieJour(date, action, commentaire) {
 }
 
 ROUTES.bureau = async function (date) {
-  retourControles = false;
   const toujoursIci = ecranCourant();
   date = /^\d{4}-\d{2}-\d{2}$/.test(date || '') ? date : aujourdhui();
   chargement();
@@ -2186,8 +2181,6 @@ ROUTES.paie = async function (etape) {
   };
   dessiner();
 };
-// Ancien lien vers la liste des contrôles : les jours à régler.
-ROUTES.controles = () => ROUTES.paie('REGLER');
 
 /**
  * Problèmes du planning et de ses référentiels (nom ou chantier inconnu, personne sans code, planning du

@@ -136,6 +136,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .jour b { font-size: 13px; }
 .jour small { font-size: 12px; }
 .jour.ok { background: var(--vert-pale); color: var(--vert); }
+.jour.bouclee { background: var(--creux); color: var(--gris); }
 .barre i.fini { background: var(--marque); }
 .jour.saisie { background: var(--surface); color: var(--encre); }
 .jour.a-faire { background: var(--surface); color: var(--encre); border-color: var(--jaune); cursor: pointer; }
@@ -172,6 +173,8 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .alerte.jaune { background: var(--jaune-pale); }
 .alerte.rouge { background: var(--rouge-pale); }
 .alerte.vert { background: var(--vert-pale); color: var(--vert); }
+.alerte.gris { background: var(--creux); color: var(--gris); }
+.alerte.gris > svg { flex-shrink: 0; }
 .bandeau { position: sticky; top: 0; z-index: 10; background: var(--encre); color: #fff; font-size: 14px; font-weight: 600; padding: 8px 16px; padding-top: calc(8px + env(safe-area-inset-top, 0px)); text-align: center; }
 /* Quand le bandeau est affiché, il occupe le haut : .app n'a plus besoin de la marge d'encoche. */
 .bandeau:not([hidden]) + .app { padding-top: 16px; min-height: calc(100svh - 40px); }
