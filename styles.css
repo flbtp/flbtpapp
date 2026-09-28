@@ -80,7 +80,7 @@ p { margin: 0; }
 label, .etiquette { font-size: 15px; font-weight: 600; display: block; }
 .sous { font-size: 14px; color: var(--gris); font-weight: 500; }
 .champ { display: flex; flex-direction: column; gap: 6px; }
-input[type=text], input[type=time], input[type=number], input[type=password], select, textarea {
+input[type=text], input[type=time], input[type=date], input[type=number], input[type=password], select, textarea {
   width: 100%; min-height: 52px; border: 2px solid var(--trait); border-radius: 10px; padding: 0 12px;
   font: inherit; font-size: 17px; background: var(--surface); color: var(--encre);
 }
@@ -136,11 +136,13 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .jour b { font-size: 13px; }
 .jour small { font-size: 12px; }
 .jour.ok { background: var(--vert-pale); color: var(--vert); }
+.jour.chef-a-faire { background: var(--jaune-pale); color: var(--encre); cursor: pointer; }
+.jour.chef-a-faire svg { width: 18px; height: 18px; }
+.jour.ok[data-jour-chef] { cursor: pointer; }
 .jour.bouclee { background: var(--creux); color: var(--gris); }
 .barre i.fini { background: var(--marque); }
 .jour.saisie { background: var(--surface); color: var(--encre); }
 .jour.a-faire { background: var(--surface); color: var(--encre); border-color: var(--jaune); cursor: pointer; }
-.jour.signalee { background: var(--rouge-pale); color: var(--rouge); cursor: pointer; }
 
 /* Lignes de liste (avancement, matériaux, équipe) */
 .ligne { display: flex; flex-direction: column; gap: 8px; padding: 12px; border-radius: 10px; background: var(--fond); }
