@@ -289,7 +289,7 @@ button.compteur { cursor: pointer; }
 .bande-jours .ok { background: var(--vert-pale); color: var(--vert); }
 .bande-jours .avenir, .bande-jours .hors { color: var(--gris); }
 .bande-jours [aria-current="true"] { box-shadow: inset 0 -4px 0 var(--encre); }
-.jour.justifiee { background: var(--creux); color: var(--gris); }
+.jour.justifiee { background: var(--bleu-pale); color: var(--bleu); }   /* version 51 : absences et jours chômés, distincts des jours à venir */
 .mini-aide { font-size: 13px; margin-top: -12px; text-align: center; }
 [hidden] { display: none !important; }
 
@@ -321,6 +321,11 @@ button.compteur { cursor: pointer; }
 .bande-jours .vide, .bande-jours .avenir, .bande-jours .en-cours { color: var(--gris); }
 .bande-jours .weekend { background: transparent; border: 2px dashed var(--trait); }
 .bande-jours .weekend.regler, .bande-jours .weekend.acocher, .bande-jours .weekend.envoi, .bande-jours .weekend.envoye { border-style: solid; }
+/* Version 51 : un samedi ou un dimanche garde la couleur de son état (le fond transparent du week-end l'effaçait). */
+.bande-jours .weekend.regler { background: var(--rouge-pale); }
+.bande-jours .weekend.acocher { background: var(--vert-pale); }
+.bande-jours .weekend.envoi { background: var(--bleu); }
+.bande-jours .weekend.envoye { background: var(--encre); }
 .bande-jours .badge { display: inline-block; min-width: 20px; padding: 0 5px; border-radius: 10px; background: var(--rouge); color: #fff; font-weight: 700; font-size: 12px; }
 .leg-bande { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 12.5px; color: var(--gris); justify-content: center; margin-top: -10px; }
 .leg-bande i { display: inline-block; width: 12px; height: 12px; border-radius: 3px; vertical-align: -1px; margin-right: 4px; }
@@ -374,7 +379,7 @@ button.compteur { cursor: pointer; }
 /* Jour affiché : cadre jaune épais et repère dessous, visibles sur toutes les couleurs. */
 .bande-jours { padding-bottom: 10px; }
 .bande-jours button[aria-current="true"] { box-shadow: none; outline: 3px solid var(--encre); outline-offset: -3px; position: relative; }
-.bande-jours button[aria-current="true"]::after { content: ''; position: absolute; left: 50%; bottom: -14px; transform: translateX(-50%);
+.bande-jours button[aria-current="true"]::after { content: ''; position: absolute; left: 50%; bottom: -12px; transform: translateX(-50%);
   border: 6px solid transparent; border-top-color: var(--encre); }
 .leg-bande .l-avalider { background: var(--jaune-pale); border: 1px solid var(--jaune); }
 .leg-bande .l-fini { background: var(--creux); border: 1px solid var(--trait); }
@@ -433,6 +438,10 @@ ul.points { margin: 0; padding-left: 18px; font-size: 14.5px; }
 .bande-jours .envoye-paie small { color: var(--vert); }
 .bande-jours .weekend.envoye-paie { border-style: solid; }
 .leg-bande .l-envoye-paie { background: var(--vert-pale); border: 1px solid var(--vert); }
+/* Version 51 : jour chômé (férié, pont, intempéries pour tous) dans la bande du bureau, même à venir. */
+.bande-jours .chome { background: repeating-linear-gradient(135deg, var(--bleu-pale) 0 6px, var(--surface) 6px 12px); color: var(--bleu); font-weight: 600; }
+.bande-jours .chome small { color: var(--bleu); }
+.leg-bande .l-chome { background: repeating-linear-gradient(135deg, var(--bleu-pale) 0 3px, var(--surface) 3px 6px); border: 1px solid var(--bleu); }
 #aideOuverte { margin-top: 8px; }
 
 /* ------------------------------------------------------------------ version 48 */
@@ -449,3 +458,14 @@ ul.points { margin: 0; padding-left: 18px; font-size: 14.5px; }
 .visionneuse-corps.taille-reelle img { max-width: none; max-height: none; cursor: zoom-out; }
 .visionneuse-corps .discret { color: #bbb; }
 .visionneuse-corps .erreur-champ { color: #ff9b8f; padding: 16px; text-align: center; }
+
+/* Version 51 : comptes rendus d'envoi au Suivi RH, par jour (après l'envoi, et sur l'écran bureau du jour). */
+.cr-jour { border-top: 1px solid var(--trait); padding-top: 10px; margin-top: 10px; display: flex; flex-direction: column; gap: 6px; }
+.cr-jour .cr-date { font-weight: 700; font-size: 17px; }
+.cr-details { margin-top: 8px; }
+.cr-details summary { cursor: pointer; font-weight: 600; }
+.cr-details .cr-jour:first-of-type { border-top: 0; }
+/* Version 51 : flèches de « Ma semaine » (4 semaines en arrière, 2 en avant). */
+.semaine-nav { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.semaine-nav .fleche { border: 0; background: var(--surface); border-radius: 10px; min-width: 44px; min-height: 36px; font: inherit; font-size: 20px; font-weight: 700; color: var(--encre); cursor: pointer; }
+.semaine-nav .fleche:disabled { opacity: .3; cursor: default; }

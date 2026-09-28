@@ -12,7 +12,7 @@
  * Numéro affiché sur l'écran de connexion et l'écran bureau (plus sur l'accueil des gars : version 48).
  * À augmenter à chaque dépôt de nouveaux fichiers sur GitHub : c'est le seul numéro à changer.
  */
-const VERSION_APPLI = '50';
+const VERSION_APPLI = '51';
 
 // ---------------------------------------------------------------------------
 // Petits outils
@@ -88,7 +88,7 @@ const ICONES = {
 class HorsReseau extends Error {}
 class RefusServeur extends Error {}
 
-const LECTURES = ['accueil', 'equipe', 'rapport', 'referentiels', 'liste_personnes', 'photo_bl'];
+const LECTURES = ['accueil', 'equipe', 'rapport', 'referentiels', 'liste_personnes', 'photo_bl', 'semaine'];
 const enVol = new Map();
 
 /** Garde les 30 derniers appels pour l'écran de diagnostic (voir ROUTES.diagnostic pour y accéder). */
@@ -602,6 +602,28 @@ function tachesAccueil(groupes) {
     ${groupes.map(g => `${plusieurs ? `<span class="sous groupe-taches">Équipe de ${esc(g.responsable)}</span>` : ''}<p class="a-faire">${esc(g.taches)}</p>`).join('')}</div>`;
 }
 
+/** Les cases de « Ma semaine » (versions 49 à 51). */
+function casesSemaine(semaine) {
+  return semaine.map(s => {
+          // Version 50 : un jour où il menait une équipe dit s'il lui reste à faire (« À faire » / « Fait »), et s'ouvre
+          // sur la page de ce jour ; une absence montre son motif abrégé (CP, Maladie, Férié…).
+          const chef = s.chef && !s.boucle && s.statut !== 'JUSTIFIEE' ? s.chef : null;
+          const [lib0, cls] = chef ? (chef.aFaire ? ['À faire', 'chef-a-faire'] : ['Fait', 'ok'])
+            : LIBELLES_STATUT[s.boucle && s.statut !== 'JUSTIFIEE' ? 'BOUCLEE' : s.weekend && s.statut === 'NON_SAISIE' ? 'WEEKEND' : s.statut] || ['—', ''];
+          const lib = s.statut === 'JUSTIFIEE' && s.justification ? s.justification.court : lib0;
+          // Version 49 : un jour bouclé (ou que le serveur dit non modifiable) ne s'ouvre plus, même pas saisi.
+          const cliquable = !s.boucle && s.modifiable !== false && (['NON_SAISIE', 'SAISIE'].includes(s.statut) || s.modifiable === true);
+          const attr = chef ? `data-jour-chef="${s.date}"` : cliquable ? `data-jour="${s.date}"` : 'disabled';
+          const texte = s.justification ? messageAbsence(s.justification) : chef ? (chef.aFaire ? `À faire : ${chef.detail}` : 'Rien à faire') : lib;
+          return `<button type="button" class="jour ${cls}" ${attr} aria-label="${esc(dateLongue(s.date))} : ${esc(texte)}" ${s.justification ? `title="${esc(messageAbsence(s.justification))}"` : ''}>
+            <b>${esc(jourCourt(s.date))}</b>${cls === 'ok' ? ICONES.ok : cls === 'bouclee' ? ICONES.cadenas : cls === 'chef-a-faire' ? ICONES.attention : '<span style="height:18px"></span>'}<small>${esc(lib)}</small></button>`;
+  }).join('');
+}
+function brancherSemaine() {
+  $$('[data-jour]').forEach(b => b.onclick = () => aller('/saisie/' + b.dataset.jour));
+  $$('[data-jour-chef]').forEach(b => b.onclick = () => aller('/jour/' + b.dataset.jourChef));
+}
+
 function dessinerAccueil(a, session) {
   const j = a.journee;
   const refus = stock.lire('refus', []);
@@ -654,28 +676,36 @@ function dessinerAccueil(a, session) {
     ${action}
     ${a.estResponsable ? resumeChef(a, session.personne) : ''}
     <div class="pied">
-      <span class="sous">Ma semaine</span>
-      <div class="semaine">
-        ${a.semaine.map(s => {
-          // Version 50 : un jour où il menait une équipe dit s'il lui reste à faire (« À faire » / « Fait »), et s'ouvre
-          // sur la page de ce jour ; une absence montre son motif abrégé (CP, Maladie, Férié…).
-          const chef = s.chef && !s.boucle && s.statut !== 'JUSTIFIEE' ? s.chef : null;
-          const [lib0, cls] = chef ? (chef.aFaire ? ['À faire', 'chef-a-faire'] : ['Fait', 'ok'])
-            : LIBELLES_STATUT[s.boucle && s.statut !== 'JUSTIFIEE' ? 'BOUCLEE' : s.weekend && s.statut === 'NON_SAISIE' ? 'WEEKEND' : s.statut] || ['—', ''];
-          const lib = s.statut === 'JUSTIFIEE' && s.justification ? s.justification.court : lib0;
-          // Version 49 : un jour bouclé (ou que le serveur dit non modifiable) ne s'ouvre plus, même pas saisi.
-          const cliquable = !s.boucle && s.modifiable !== false && (['NON_SAISIE', 'SAISIE'].includes(s.statut) || s.modifiable === true);
-          const attr = chef ? `data-jour-chef="${s.date}"` : cliquable ? `data-jour="${s.date}"` : 'disabled';
-          const texte = s.justification ? messageAbsence(s.justification) : chef ? (chef.aFaire ? `À faire : ${chef.detail}` : 'Rien à faire') : lib;
-          return `<button type="button" class="jour ${cls}" ${attr} aria-label="${esc(dateLongue(s.date))} : ${esc(texte)}" ${s.justification ? `title="${esc(messageAbsence(s.justification))}"` : ''}>
-            <b>${esc(jourCourt(s.date))}</b>${cls === 'ok' ? ICONES.ok : cls === 'bouclee' ? ICONES.cadenas : cls === 'chef-a-faire' ? ICONES.attention : '<span style="height:18px"></span>'}<small>${esc(lib)}</small></button>`;
-        }).join('')}
-      </div>
+      <div class="semaine-nav"><button type="button" class="fleche" id="semPrec" aria-label="Semaine précédente">‹</button>
+        <span class="sous" id="semTitre">Ma semaine</span>
+        <button type="button" class="fleche" id="semSuiv" aria-label="Semaine suivante">›</button></div>
+      <div class="semaine" id="semaine">${casesSemaine(a.semaine)}</div>
     </div>`;
   $('#sortir').onclick = demanderDeconnexion;
   appuiLong($('.entete .embleme'), () => aller('/diagnostic'));
-  $$('[data-jour]').forEach(b => b.onclick = () => aller('/saisie/' + b.dataset.jour));
-  $$('[data-jour-chef]').forEach(b => b.onclick = () => aller('/jour/' + b.dataset.jourChef));
+  brancherSemaine();
+  // Version 51 : les flèches font défiler « Ma semaine », de 4 semaines en arrière à 2 en avant (réseau nécessaire).
+  let decalage = 0;
+  const lundi = n => { const d = new Date(aujourdhui() + 'T12:00:00Z'); d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7) + 7 * n); return d.toISOString().slice(0, 10); };
+  const bornes = () => { $('#semPrec').disabled = decalage <= -4; $('#semSuiv').disabled = decalage >= 2; };
+  const changer = async sens => {
+    const voulu = decalage + sens;
+    if (voulu < -4 || voulu > 2) return;
+    $('#semaine').style.opacity = '.4';
+    try {
+      const sem = voulu === 0 ? a.semaine : (await appel('semaine', { date: lundi(voulu) })).semaine;
+      if (!document.body.contains($('#semaine'))) return;
+      decalage = voulu;
+      $('#semaine').innerHTML = casesSemaine(sem);
+      $('#semTitre').textContent = decalage === 0 ? 'Ma semaine' : `Semaine du ${lundi(decalage).slice(8, 10)}/${lundi(decalage).slice(5, 7)}`;
+      brancherSemaine();
+    } catch (err) { toast(err instanceof HorsReseau ? 'Pas de réseau : seule la semaine en cours est affichée.' : err.message); }
+    if ($('#semaine')) $('#semaine').style.opacity = '';
+    bornes();
+  };
+  $('#semPrec').onclick = () => changer(-1);
+  $('#semSuiv').onclick = () => changer(1);
+  bornes();
   if (refus.length) stock.effacer('refus');
 }
 
@@ -1994,6 +2024,8 @@ ROUTES.bureau = async function (date) {
     return `<div class="bandeau-jour ${couleur}">
       <div class="haut"><h2>${esc(dateLongue(date))}</h2>${etiquette ? `<span class="etat ${couleur}">${esc(etiquette)}</span>` : ''}</div>
       ${chomeJustif ? `<p class="chome-etat">Jour chômé : ${esc(chomeJustif.justification)}</p>` : ''}
+      ${(d.comptesRendus || []).length ? `<details class="cr-details"><summary>Compte rendu de l'envoi au Suivi RH${d.comptesRendus.length > 1 ? ` (${d.comptesRendus.length} envois)` : ''}</summary>
+        ${d.comptesRendus.slice().reverse().map(c => htmlCompteRenduJour(c, false)).join('')}</details>` : ''}
       ${ctl.duJour.filter(c => c.type === 'CHOME_AVEC_SAISIES').map(c => `<p class="chome-etat" data-point="CHOME_AVEC_SAISIES">${ICONES.attention} <b>${esc(c.titre)}</b> — ${esc(c.detail)}</p>`).join('')}
       ${texte}
       ${resume.length ? `<div class="resume-jour">${resume.join('')}</div>` : ''}
@@ -2025,12 +2057,15 @@ ROUTES.bureau = async function (date) {
       </div>
       <!-- Quatre semaines, du lundi au dimanche : faire glisser pour remonter le temps. -->
       <div class="bande-jours" id="bande">
-        ${ctl.jours.map(j => { const [lib, cls] = ETATS_JOUR[j.etat] || ['·', 'vide'];
-          return `<button type="button" data-jour-bureau="${j.date}" aria-current="${j.date === date}"
+        ${ctl.jours.map(j => { const [lib0, cls0] = ETATS_JOUR[j.etat] || ['·', 'vide'];
+          // Version 51 : un jour chômé (férié, pont…) se voit dans la bande, même à venir : son motif, fond hachuré.
+          const chome = j.chome && ['AVENIR', 'VIDE', 'EN_COURS', 'HORS_CONTROLE'].includes(j.etat);
+          const [lib, cls] = chome ? [j.chome, 'chome'] : [lib0, cls0];
+          return `<button type="button" data-jour-bureau="${j.date}" aria-current="${j.date === date}" ${j.chome ? `title="Jour chômé : ${esc(j.chome)}"` : ''}
             class="${cls} ${j.weekend ? 'weekend' : ''} ${new Date(j.date + 'T12:00:00Z').getUTCDay() === 1 ? 'lundi' : ''}">
             <small>${esc(jourCourt(j.date))}</small><b>${Number(j.date.slice(8))}</b>${j.etat === 'REGLER' ? `<span class="badge">${j.points}</span>` : esc(lib)}</button>`; }).join('')}
       </div>
-      <div class="leg-bande"><span><i class="l-regler"></i>à régler</span><span><i class="l-avalider"></i>à valider</span><span><i class="l-envoi"></i>prêt, dans l'envoi</span><span><i class="l-envoye-paie"></i>envoyé</span><span><i class="l-fini"></i>hors appli</span></div>
+      <div class="leg-bande"><span><i class="l-regler"></i>à régler</span><span><i class="l-avalider"></i>à valider</span><span><i class="l-envoi"></i>prêt, dans l'envoi</span><span><i class="l-envoye-paie"></i>envoyé</span><span><i class="l-fini"></i>hors appli</span><span><i class="l-chome"></i>chômé</span></div>
 
       ${bandeauJour()}
 
@@ -2042,7 +2077,7 @@ ROUTES.bureau = async function (date) {
         <button class="btn btn-ajout btn-petit" type="button" id="saisirPour">${ICONES.plus} Saisir pour quelqu'un</button>
         <button class="btn btn-ajout btn-petit" type="button" id="effacer">Effacer une journée saisie</button>
       </div>`}
-      <button class="btn btn-ajout btn-petit" type="button" id="absencesPrevues">Absences prévues (congés, maladie, fériés…)</button>
+      ${verrou() ? '' : '<button class="btn btn-ajout btn-petit" type="button" id="absencesPrevues">Absences prévues (congés, maladie, fériés…)</button>'}
 
       <div class="pied">
         <button type="button" class="version" onclick="aller('/diagnostic')">Version ${esc(VERSION_APPLI)}</button>
@@ -2054,7 +2089,8 @@ ROUTES.bureau = async function (date) {
     $$('[data-rapport]').forEach(b => b.onclick = () => partir(`/rapport/${date}/${encodeURIComponent(b.dataset.rapport)}`));
     if ($('#saisirPour')) $('#saisirPour').onclick = () => partir('/bureau-ajout/' + date);
     if ($('#effacer')) $('#effacer').onclick = () => partir('/bureau-supprimer/' + date);
-    $('#absencesPrevues').onclick = () => partir('/absences');
+    // Version 51 : l'écran s'ouvre sur le jour affiché ; pas d'absence prévue depuis un jour clos (bouton masqué).
+    if ($('#absencesPrevues')) $('#absencesPrevues').onclick = () => partir('/absences/' + date);
     $$('[data-valider-chef]').forEach(b => b.onclick = () => agir({ date, quoi: 'CHEF', personnes: [b.dataset.validerChef] }));
     $('#sortir').onclick = demanderDeconnexion;
     $$('[data-justifier]').forEach(b => b.onclick = () => { justifOuvert = b.dataset.justifier; dessiner(); });
@@ -2165,6 +2201,26 @@ ROUTES.bureau = async function (date) {
   }
 };
 
+/**
+ * Compte rendu de l'envoi d'un jour dans le Suivi RH (version 51) : date en titre, puis ce qui est écrit et ce
+ * qui reste à reprendre à la main. Affiché après l'envoi et, ensuite, sur l'écran bureau de ce jour.
+ */
+function htmlCompteRenduJour(c, avecDate) {
+  const liste = (titre, l, classe) => l && l.length ? `<p class="${classe || ''}"><b>${esc(titre)}</b></p><ul class="points">${l.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : '';
+  const rien = !['conflits', 'remplacements', 'aCompleter', 'ignorees'].some(k => (c[k] || []).length);
+  const quand = String(c.quand || '');
+  return `<div class="cr-jour" data-cr="${esc(c.date)}">
+    ${avecDate ? `<p class="cr-date">${esc(dateLongue(c.date))}</p>` : ''}
+    <p class="discret">Envoyé le ${esc(quand.slice(8, 10))}/${esc(quand.slice(5, 7))} à ${esc(quand.slice(11, 16))}${c.par ? ` par ${esc(c.par)}` : ''} :
+      ${c.journees} journée${c.journees > 1 ? 's' : ''}, ${c.absences} absence${c.absences > 1 ? 's' : ''}${c.horsSuivi ? `, ${c.horsSuivi} hors Suivi RH` : ''}.</p>
+    ${rien ? '<p class="discret">Rien à reprendre à la main.</p>' : ''}
+    ${liste('Conflits : code déjà saisi dans le Suivi RH, rien d\'écrit', c.conflits, 'rouge')}
+    ${liste('Jours travaillés écrits sur un code prévu', c.remplacements)}
+    ${liste('À compléter à la main (rien dans l\'appli ce jour-là)', c.aCompleter)}
+    ${liste('Non écrites', c.ignorees, 'rouge')}
+  </div>`;
+}
+
 /** Les jours d'une étape de la chaîne de paie (« complets, à cocher » ou « dans l'envoi »), toutes dates confondues. */
 ROUTES.paie = async function (etape) {
   const toujoursIci = ecranCourant();
@@ -2175,19 +2231,15 @@ ROUTES.paie = async function (etape) {
   try { d = await appel('bureau_jour', { date: aujourdhui() }); } catch (err) { if (toujoursIci()) erreurEcran(err); return; }
   if (!toujoursIci()) return;
   const recharger = async () => { d = await appel('bureau_jour', { date: aujourdhui() }).catch(() => d); };
-  // Compte rendu du dernier envoi dans le Suivi RH (version 50) : ce qui n'a pas été écrit ou a été remplacé.
+  // Compte rendu du dernier envoi dans le Suivi RH : un bloc par jour envoyé (version 51), gardé aussi sur le jour.
   let compteRendu = null;
   const blocCompteRendu = r => {
     if (!r) return '';
-    const liste = (titre, l, classe) => l && l.length ? `<p class="${classe}"><b>${esc(titre)}</b></p><ul class="points">${l.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : '';
-    const rien = !['ignorees', 'conflits', 'remplacements', 'aCompleter'].some(k => (r[k] || []).length);
+    const non = (r.nonEnvoyes || []);
     return `<section class="bloc" id="compteRendu"><div class="bloc-titre">Compte rendu de l'envoi</div>
       <p>${r.ecrites} journée${r.ecrites > 1 ? 's' : ''} et ${r.absences || 0} absence${(r.absences || 0) > 1 ? 's' : ''} écrites dans le Suivi RH.</p>
-      ${rien ? '<p class="discret">Rien à reprendre à la main.</p>' : ''}
-      ${liste('Conflits : code déjà saisi dans le Suivi RH, rien d\'écrit', r.conflits, 'rouge')}
-      ${liste('Jours travaillés écrits sur un code prévu', r.remplacements, '')}
-      ${liste('À compléter à la main dans le Suivi RH (rien dans l\'appli ce jour-là)', r.aCompleter, '')}
-      ${liste('Non envoyées', r.ignorees, 'rouge')}
+      ${(r.jours || []).map(c => htmlCompteRenduJour(c, true)).join('')}
+      ${non.length ? `<p class="rouge"><b>Jours non envoyés (point à corriger)</b></p><ul class="points">${non.map(x => `<li><b>${esc(dateLongue(x.date))}</b> : ${esc(x.texte)}</li>`).join('')}</ul>` : ''}
     </section>`;
   };
   const dessiner = () => {
@@ -2415,13 +2467,14 @@ ROUTES['bureau-supprimer'] = async function (date) {
  * Absences prévues (version 50) : congés, maladie, formation… d'une personne, ou jour chômé pour tout le monde
  * (férié, pont / RTT, intempéries), déclarés d'avance, du … au … (jours du lundi au vendredi seulement).
  */
-ROUTES.absences = async function () {
+ROUTES.absences = async function (param) {
   const toujoursIci = ecranCourant();
+  const jourInitial = /^\d{4}-\d{2}-\d{2}$/.test(param || '') ? param : aujourdhui();
   chargement();
   let d;
   try { d = await appel('bureau_absences', { action: 'lister' }); } catch (err) { if (toujoursIci()) erreurEcran(err); return; }
   if (!toujoursIci()) return;
-  const f = { tous: false, personne: '', du: aujourdhui(), au: aujourdhui(), motif: '', commentaire: '' };
+  const f = { tous: false, personne: '', du: jourInitial, au: jourInitial, motif: '', commentaire: '' };
   const jj = x => `${x.slice(8, 10)}/${x.slice(5, 7)}`;
   const dessiner = () => {
     const p = d.personnes.find(x => x.libelle === f.personne);
@@ -2430,7 +2483,7 @@ ROUTES.absences = async function () {
     const pret = f.motif && f.du && f.au && (f.tous || f.personne);
     APP().innerHTML = `
       <div class="entete">
-        <button class="retour" type="button" aria-label="Retour" onclick="aller('/bureau')">${ICONES.retour}</button>
+        <button class="retour" type="button" aria-label="Retour" onclick="aller('/bureau/' + '${jourInitial}')">${ICONES.retour}</button>
         <div><h1>Absences prévues</h1><p class="discret">Congés, maladie, formation, fériés… déclarés d'avance</p></div>
       </div>
       <section class="bloc">
