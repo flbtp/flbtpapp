@@ -12,7 +12,7 @@
  * Numéro affiché sur l'écran de connexion et l'écran bureau (plus sur l'accueil des gars : version 48).
  * À augmenter à chaque dépôt de nouveaux fichiers sur GitHub : c'est le seul numéro à changer.
  */
-const VERSION_APPLI = '51';
+const VERSION_APPLI = '52';
 
 // ---------------------------------------------------------------------------
 // Petits outils
@@ -78,6 +78,7 @@ const ICONES = {
   attention: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l10 18H2z"/><path d="M12 10v5"/><path d="M12 18h.01"/></svg>',
   photo: '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>',
   plus: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14"/><path d="M5 12h14"/></svg>',
+  calendrier: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18"/><path d="M8 3v4"/><path d="M16 3v4"/></svg>',
   horsReseau: '<svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 2l20 20"/><path d="M8.5 16.5a5 5 0 0 1 7 0"/><path d="M2 8.8a15 15 0 0 1 4.2-2.6"/><path d="M10.7 5.1A15 15 0 0 1 22 8.8"/><path d="M5 12.6a10 10 0 0 1 5.2-2.7"/><path d="M14.8 10.3A10 10 0 0 1 19 12.6"/><path d="M12 20h.01"/></svg>',
 };
 
@@ -88,7 +89,7 @@ const ICONES = {
 class HorsReseau extends Error {}
 class RefusServeur extends Error {}
 
-const LECTURES = ['accueil', 'equipe', 'rapport', 'referentiels', 'liste_personnes', 'photo_bl', 'semaine'];
+const LECTURES = ['accueil', 'equipe', 'rapport', 'referentiels', 'liste_personnes', 'photo_bl', 'semaine', 'planning', 'bl_gars'];
 const enVol = new Map();
 
 /** Garde les 30 derniers appels pour l'écran de diagnostic (voir ROUTES.diagnostic pour y accéder). */
@@ -181,10 +182,10 @@ async function unEssai(action, donnees, idEnvoi, essai) {
 function file() { return stock.lire('file', []); }
 
 /** Envoie tout de suite ; sans réseau, met en file et renvoie { enAttente: true }. */
-async function envoyer(action, donnees, libelle) {
+async function envoyer(action, donnees, libelle, idEnvoi = uuid()) {
   // L'envoi garde le nom de son auteur : il ne partira jamais sous le compte de quelqu'un d'autre
   // qui se connecterait ensuite sur ce téléphone.
-  const element = { action, donnees, idEnvoi: uuid(), libelle, date: new Date().toISOString(),
+  const element = { action, donnees, idEnvoi, libelle, date: new Date().toISOString(),
     personne: (stock.lire('session') || {}).personne || '' };
   try {
     const r = await appel(action, donnees, element.idEnvoi);
@@ -299,7 +300,7 @@ function chargement(texte = 'Chargement…') {
 
 function deconnecter() {
   stock.effacer('session');
-  ['accueil', 'jours', 'dernierEnvoi', 'refus', 'filtreControles'].forEach(stock.effacer);
+  ['accueil', 'jours', 'dernierEnvoi', 'refus', 'filtreControles', 'planning', 'blGars'].forEach(stock.effacer);
   aller('/');
 }
 
@@ -390,7 +391,7 @@ async function ecranConnexion() {
       const r = await appel('connexion', { personne: choisi, code });
       // Ce qui reste d'une session précédente n'a rien à faire ici : on repart propre.
       // Rien de la personne d'avant ne doit s'afficher : écrans gardés, refus, filtre du bureau.
-      ['accueil', 'jours', 'ref', 'dernierEnvoi', 'refus', 'filtreControles'].forEach(stock.effacer);
+      ['accueil', 'jours', 'ref', 'dernierEnvoi', 'refus', 'filtreControles', 'planning', 'blGars'].forEach(stock.effacer);
       stock.ecrire('session', { jeton: r.jeton, personne: r.personne, type: r.type, prenom: r.prenom, bureau: !!r.bureau });
       stock.ecrire('dernierNom', choisi);
       aller('/accueil');
@@ -510,6 +511,8 @@ const LIBELLES_STATUT = {
 };
 // Version 49 : jour dans l'envoi en paie, envoyé ou traité hors appli (le serveur le dit avec « boucle »).
 const MESSAGE_BOUCLE = 'Ce jour est bouclé : adresse-toi au bureau pour toute correction.';
+// Version 52 : jour d'avant la mise en service (réglage CONTROLES_DEPUIS) — rien à saisir dans l'appli.
+const MESSAGE_AVANT_SERVICE = "Jour d'avant la mise en service de l'appli : rien à saisir ici.";
 const jourDeSemaine = (a, date) => ((a && a.semaine) || []).find(x => x.date === date) || {};
 /**
  * Absence déclarée par le bureau, vue par un gars ou un chef (version 50) : { chome, motif, court }. Le motif
@@ -631,7 +634,10 @@ function dessinerAccueil(a, session) {
 
   let action;
   const boucle = !!jourDeSemaine(a, a.date).boucle;
-  if (!j && a.justification) action = `<div class="alerte jaune">${ICONES.attention}<span>${esc(messageAbsence(a.justification))}</span></div>`;
+  // Version 52 : avant la mise en service, l'accueil n'offre rien à saisir (ni journée, ni BL, ni rapport, ni équipe).
+  const avant = !!a.avantService;
+  if (avant) action = `<div class="alerte gris">${ICONES.horloge}<span>L'application démarre le ${esc(dateLongue(a.avantService).toLowerCase())}. D'ici là, continue les carnets papier.</span></div>`;
+  else if (!j && a.justification) action = `<div class="alerte jaune">${ICONES.attention}<span>${esc(messageAbsence(a.justification))}</span></div>`;
   else if (boucle && !(j && j.enAttente)) action = `<div class="alerte gris">${ICONES.cadenas}<span>${j ? `Journée bouclée : ${esc(j.hEmbauche)}–${esc(j.hPause)} · ${esc(j.hReprise)}–${esc(j.hDebauche)}. Pour toute correction, adresse-toi au bureau.` : esc(MESSAGE_BOUCLE)}</span></div>`;
   else if (!j) action = `<button class="btn btn-principal" type="button" onclick="aller('/saisie/${a.date}')">Saisir ma journée</button>`;
   else if (j.enAttente) action = `<div class="alerte jaune">${ICONES.horloge}<span>Journée gardée sur ton téléphone : ${esc(j.hEmbauche)}–${esc(j.hPause)} · ${esc(j.hReprise)}–${esc(j.hDebauche)}. Elle partira dès que possible.</span></div>`;
@@ -648,6 +654,7 @@ function dessinerAccueil(a, session) {
     <div class="entete">
       <img class="embleme" src="embleme.png" alt="" aria-hidden="true">
       <div><p class="discret">Bonjour ${esc(session.prenom || session.personne)}</p><h1>${esc(dateLongue(a.date))}</h1></div>
+      <button class="icone-btn" type="button" aria-label="Planning du bureau" id="voirPlanning">${ICONES.calendrier}</button>
       <button class="icone-btn" type="button" aria-label="Se déconnecter" id="sortir">${ICONES.sortie}</button>
     </div>
     ${refus.length ? `<div class="alerte rouge">${ICONES.attention}<span>${refus.map(r => `<b>${esc(r.libelle)}</b> refusé : ${esc(r.erreur)}`).join('<br>')}</span></div>` : ''}
@@ -671,10 +678,12 @@ function dessinerAccueil(a, session) {
          ${eqj && eqj.membres.length > 1 ? equipeAccueil(eqj) : ''}</section>`}
     ${a.journee && bloc && a.chefDuJour && a.chefDuJour !== bloc.responsable && a.chefDuJour !== session.personne
       ? `<div class="alerte jaune">${ICONES.attention}<span>D'après tes chantiers, tu es aujourd'hui dans l'équipe de <b>${esc(a.chefDuJour)}</b> : c'est lui qui valide ta journée.</span></div>` : ''}
-    ${a.chefDeFait ? `<div class="alerte jaune">${ICONES.attention}<span>Personne n'était prévu sur tes chantiers : tu en es le <b>chef</b> aujourd'hui. Tu fais le rapport (au moins les repas) et tu valides ceux qui te rejoignent ; ta propre journée est validée par le bureau.</span></div>` : ''}
-    ${a.remplace ? `<div class="alerte jaune">${ICONES.attention}<span><b>${esc(a.remplace)}</b> est absent : tu le remplaces aujourd'hui. Tu fais le rapport (au moins les repas) et tu valides l'équipe ; ta propre journée est validée par le bureau.</span></div>` : ''}
+    ${a.chefDeFait && !avant ? `<div class="alerte jaune">${ICONES.attention}<span>Personne n'était prévu sur tes chantiers : tu en es le <b>chef</b> aujourd'hui. Tu fais le rapport (au moins les repas) et tu valides ceux qui te rejoignent ; ta propre journée est validée par le bureau.</span></div>` : ''}
+    ${a.remplace && !avant ? `<div class="alerte jaune">${ICONES.attention}<span><b>${esc(a.remplace)}</b> est absent : tu le remplaces aujourd'hui. Tu fais le rapport (au moins les repas) et tu valides l'équipe ; ta propre journée est validée par le bureau.</span></div>` : ''}
     ${action}
-    ${a.estResponsable ? resumeChef(a, session.personne) : ''}
+    ${a.estResponsable && !avant ? resumeChef(a, session.personne) : ''}
+    ${a.estResponsable || avant ? '' : `<div class="duo duo-bl"><label class="btn btn-sombre btn-petit btn-bl" id="boutonBl">${ICONES.photo} Photo de BL<input type="file" accept="image/*" capture="environment" id="photoBl"></label>
+      <button class="btn btn-clair btn-petit" type="button" id="mesBl" onclick="aller('/bl')">Mes BL</button></div>`}
     <div class="pied">
       <div class="semaine-nav"><button type="button" class="fleche" id="semPrec" aria-label="Semaine précédente">‹</button>
         <span class="sous" id="semTitre">Ma semaine</span>
@@ -682,6 +691,9 @@ function dessinerAccueil(a, session) {
       <div class="semaine" id="semaine">${casesSemaine(a.semaine)}</div>
     </div>`;
   $('#sortir').onclick = demanderDeconnexion;
+  $('#voirPlanning').onclick = () => aller('/planning');
+  // Version 52 : les gars envoient leurs BL depuis l'accueil ; un chef (planning, remplaçant, chef de fait) depuis son rapport.
+  if ($('#photoBl')) $('#photoBl').onchange = ev => { photoBlPrise = ev.target.files[0] || null; if (photoBlPrise) aller('/bl'); };
   appuiLong($('.entete .embleme'), () => aller('/diagnostic'));
   brancherSemaine();
   // Version 51 : les flèches font défiler « Ma semaine », de 4 semaines en arrière à 2 en avant (réseau nécessaire).
@@ -735,6 +747,187 @@ ROUTES.jour = async function (date) {
     ${a.chef ? resumeChef(a, session.personne) : '<section class="bloc"><p class="discret">Tu ne menais pas d\'équipe ce jour-là.</p></section>'}
     ${maJournee ? `<div class="pied">${maJournee}</div>` : ''}`;
   if ($('#maJournee')) $('#maJournee').onclick = () => aller('/saisie/' + date);
+};
+
+// ---------------------------------------------------------------------------
+// Bon de livraison depuis l'accueil (version 52)
+// ---------------------------------------------------------------------------
+
+let photoBlPrise = null;                   // photo tout juste prise depuis l'accueil, en attente de son chantier
+
+/** Les chantiers proposés pour un BL : groupe par groupe (les siens, ceux du jour, les récents). */
+function optionsChantiersBl(chantiers, actuel) {
+  const groupes = [['miens', 'Mes chantiers du jour'], ['jour', 'Autres chantiers du jour'], ['recents', 'Chantiers récents']];
+  const liste = actuel && !chantiers.some(c => c.libelle === actuel) ? [{ libelle: actuel, groupe: 'miens' }, ...chantiers] : chantiers;
+  return groupes.map(([g, titre]) => {
+    const l = liste.filter(c => c.groupe === g);
+    return l.length ? `<optgroup label="${esc(titre)}">${l.map(c => `<option value="${esc(c.libelle)}" ${c.libelle === actuel ? 'selected' : ''}>${esc(nomCourt(c.libelle))}</option>`).join('')}</optgroup>` : '';
+  }).join('');
+}
+
+/** Vignettes (≈ 10 Ko) des BL envoyés depuis l'accueil, par numéro d'envoi, gardées 10 jours au plus. */
+const CLE_APERCUS_ENVOI = 'flbtp.apercusBlEnvoi';
+function apercuEnvoi(cle) { try { return (JSON.parse(localStorage.getItem(CLE_APERCUS_ENVOI) || '{}')[cle] || {}).a || ''; } catch (e) { return ''; } }
+function garderApercuEnvoi(cle, apercu) {
+  try {
+    const tous = JSON.parse(localStorage.getItem(CLE_APERCUS_ENVOI) || '{}');
+    tous[cle] = { a: apercu, t: Date.now() };
+    Object.keys(tous).forEach(k => { if (Date.now() - tous[k].t > 10 * 86400000) delete tous[k]; });
+    localStorage.setItem(CLE_APERCUS_ENVOI, JSON.stringify(tous));
+  } catch (e) { /* mémoire pleine : pas de vignette, rien de grave */ }
+}
+
+/**
+ * Photo de BL prise depuis l'accueil : on choisit son chantier (les siens du jour en gros boutons ; les autres
+ * chantiers du jour et les chantiers récents dans une liste), puis « Envoyer le BL ». En dessous, ses BL des
+ * 10 derniers jours, dont il peut encore changer le chantier tant que leur jour n'est pas bouclé.
+ */
+ROUTES.bl = async function () {
+  const date = aujourdhui();
+  const toujoursIci = ecranCourant();
+  let photo = null, choisi = '', donnees = stock.lire('blGars');
+  if (donnees && donnees.date !== date) donnees = null;
+  const enAttente = () => file().filter(x => x.action === 'ajouter_bl' && x.personne === (stock.lire('session') || {}).personne).length;
+  const prendre = async f => {
+    photo = { apercu: '', image: '' }; dessiner();
+    const [image, apercu] = await Promise.all([redimensionner(f), redimensionner(f, 240, 0.6)]);
+    photo = { image, apercu };
+    if (toujoursIci()) dessiner();
+  };
+  const dessiner = () => {
+    const ch = donnees ? donnees.chantiers : [];
+    const miens = ch.filter(c => c.groupe === 'miens');
+    if (!choisi && miens.length === 1) choisi = miens[0].libelle;
+    const autres = ch.filter(c => c.groupe !== 'miens');
+    APP().innerHTML = `
+      <div class="entete">
+        <button class="retour" type="button" aria-label="Retour" onclick="aller(accueilPerso())">${ICONES.retour}</button>
+        <div><h1>Bon de livraison</h1><p class="discret">Aujourd'hui, ${esc(dateLongue(date).toLowerCase())}</p></div>
+      </div>
+      ${photo ? `
+      <section class="bloc">
+        <div class="bl-apercu"${photo.apercu ? ` style="background-image:url('${photo.apercu}')"` : ''}>${photo.apercu ? '' : '<span class="discret">Préparation…</span>'}</div>
+        <span class="sous">Pour quel chantier ?</span>
+        ${!donnees ? '<p class="discret">Chargement des chantiers…</p>' : `
+        ${miens.length ? `<div class="choix bl-chantiers" style="--n:1">${miens.map(c => `<button type="button" data-bl-ch="${esc(c.libelle)}" aria-pressed="${c.libelle === choisi}">${esc(nomCourt(c.libelle))}</button>`).join('')}</div>` : ''}
+        ${autres.length ? `<select id="blAutre" aria-label="Autre chantier">
+          <option value="">${miens.length ? 'Autre chantier…' : 'Choisir le chantier…'}</option>${optionsChantiersBl(autres, miens.some(c => c.libelle === choisi) ? '' : choisi)}</select>` : ''}`}
+      </section>
+      <p class="erreur-champ" id="erreur" role="alert"></p>
+      <div class="pied">
+        <button class="btn btn-principal" type="button" id="envoyerBl" ${choisi && photo.image ? '' : 'disabled'}>Envoyer le BL</button>
+        <label class="btn btn-clair btn-petit btn-bl">Reprendre la photo<input type="file" accept="image/*" capture="environment" data-reprendre></label>
+      </div>` : `
+      <label class="btn btn-principal btn-bl">${ICONES.photo} Prendre une photo de BL<input type="file" accept="image/*" capture="environment" data-reprendre></label>`}
+      ${enAttente() ? `<div class="alerte jaune">${ICONES.horloge}<span>${enAttente()} BL en attente de réseau : ${enAttente() > 1 ? 'ils partiront' : 'il partira'} tout seul${enAttente() > 1 ? 's' : ''}.</span></div>` : ''}
+      ${donnees && donnees.derniers.length ? `
+      <section class="bloc">
+        <h2>Mes derniers BL</h2>
+        ${donnees.derniers.map((b, k) => `
+          <div class="bl-ligne">
+            <div class="bl-vignette"${apercuEnvoi(b.cle) ? ` style="background-image:url('${apercuEnvoi(b.cle)}')"` : ''}></div>
+            <div class="bl-infos"><span class="sous">${esc(dateLongue(b.date))}</span>
+              <select data-bl-deplacer="${k}" aria-label="Chantier de ce BL" ${b.modifiable ? '' : 'disabled'}>${optionsChantiersBl(donnees.chantiers, b.chantier)}</select>
+              ${b.modifiable ? '' : '<span class="discret">Jour bouclé</span>'}</div>
+          </div>`).join('')}
+      </section>` : ''}`;
+    $$('[data-reprendre]').forEach(i => i.onchange = ev => { const f = ev.target.files[0]; if (f) prendre(f); });
+    $$('[data-bl-ch]').forEach(b => b.onclick = () => { choisi = b.dataset.blCh; dessiner(); });
+    if ($('#blAutre')) $('#blAutre').onchange = ev => { if (ev.target.value) { choisi = ev.target.value; dessiner(); } };
+    if ($('#envoyerBl')) $('#envoyerBl').onclick = envoyerBl;
+    $$('[data-bl-deplacer]').forEach(sel => sel.onchange = async () => {
+      const b = donnees.derniers[+sel.dataset.blDeplacer];
+      sel.disabled = true;
+      try {
+        const r = await appel('deplacer_bl', { id: b.id, chantier: sel.value });
+        b.chantier = r.chantier; stock.ecrire('blGars', donnees);
+        toast(`BL rangé sous ${nomCourt(r.chantier)}.`);
+      } catch (err) { toast(err.message); sel.value = b.chantier; }
+      sel.disabled = false;
+    });
+  };
+  const envoyerBl = async () => {
+    const bouton = $('#envoyerBl'); bouton.disabled = true; bouton.textContent = 'Envoi…';
+    const cle = uuid();
+    try {
+      const r = await envoyer('ajouter_bl', { date, chantier: choisi, image: photo.image }, `Photo de BL — ${nomCourt(choisi)}`, cle);
+      garderApercuEnvoi(cle, photo.apercu);
+      toast(r.enAttente ? 'BL gardé, il partira avec le réseau.' : `BL envoyé : ${nomCourt(choisi)}.`);
+      aller(accueilPerso());
+    } catch (err) {
+      $('#erreur').textContent = err.message; bouton.disabled = false; bouton.textContent = 'Envoyer le BL';
+    }
+  };
+  if (photoBlPrise) { const f = photoBlPrise; photoBlPrise = null; prendre(f); } else dessiner();
+  try {
+    const r = await appel('bl_gars', { date });
+    donnees = r; stock.ecrire('blGars', r);
+  } catch (err) {
+    if (!(err instanceof HorsReseau) && toujoursIci()) toast(err.message);
+  }
+  if (toujoursIci()) dessiner();
+};
+
+// ---------------------------------------------------------------------------
+// Planning du bureau (version 52)
+// ---------------------------------------------------------------------------
+
+/** Prochain jour du lundi au vendredi après `iso` (même règle que le serveur). */
+function prochainJourOuvre(iso) {
+  const d = new Date(`${iso}T12:00:00Z`);
+  do d.setUTCDate(d.getUTCDate() + 1); while (d.getUTCDay() === 0 || d.getUTCDay() === 6);
+  return d.toISOString().slice(0, 10);
+}
+
+/**
+ * Le planning tel que le bureau l'a écrit, pour aujourd'hui et le prochain jour ouvré : une carte par équipe,
+ * la sienne d'abord. Le dernier planning chargé de chaque jour est gardé sur le téléphone (lecture sans réseau).
+ */
+ROUTES.planning = async function (param) {
+  const auj = aujourdhui();
+  const suivant = prochainJourOuvre(auj);
+  const date = param === suivant ? suivant : auj;
+  const toujoursIci = ecranCourant();
+  const jj = iso => `${iso.slice(8, 10)}/${iso.slice(5, 7)}`;
+  const garde = () => { const g = stock.lire('planning', {}); return g[date] || null; };
+  const carte = b => `
+    <section class="bloc pl-bloc${b.moi ? ' moi' : ''}">
+      <div class="bloc-titre"><span>${b.chantiers.map(c => esc(nomCourt(c))).join('<br>')}</span>${b.moi ? '<span class="tag">Ton équipe</span>' : ''}</div>
+      ${b.taches ? `<div><span class="sous">Tâches</span><p class="a-faire">${esc(b.taches)}</p></div>` : ''}
+      <div class="pl-noms">${[...b.equipe.filter(m => !m.absent), ...b.equipe.filter(m => m.absent)].map(m =>
+        `<span class="${m.absent ? 'absent' : ''}">${esc(m.nom)}${m.chef && m.absent ? ` (chef, ${esc(m.absent)})` : m.chef ? ' (chef)' : m.absent ? ` (${esc(m.absent)})` : ''}</span>`).join('')}</div>
+      ${b.infos.length ? `<dl class="pl-infos sep">${b.infos.map(x => `<dt>${esc(x.titre)}</dt><dd>${x.lignes.map(l => `<div>${esc(l)}</div>`).join('')}</dd>`).join('')}</dl>` : ''}
+    </section>`;
+  const dessiner = (g, horsReseau) => {
+    APP().innerHTML = `
+      <div class="entete">
+        <button class="retour" type="button" aria-label="Retour" onclick="aller(accueilPerso())">${ICONES.retour}</button>
+        <div><h1>Planning du bureau</h1></div>
+      </div>
+      <div class="choix pl-jours" style="--n:2">
+        <button type="button" data-jour-pl="${auj}" aria-pressed="${date === auj}">Aujourd'hui<br><small>${esc(jourCourt(auj))} ${jj(auj)}</small></button>
+        <button type="button" data-jour-pl="${suivant}" aria-pressed="${date === suivant}">${esc(dateLongue(suivant).split(' ')[0])}<br><small>${jj(suivant)}</small></button>
+      </div>
+      ${horsReseau ? `<div class="alerte jaune">${ICONES.attention}<span>${g ? 'Pas de réseau : dernier planning chargé sur ce téléphone.' : "Pas de réseau, et ce planning n'a jamais été chargé sur ce téléphone."}</span></div>` : ''}
+      ${!g ? '' : !g.trouve ? '<section class="bloc"><p>Planning pas encore disponible pour ce jour.</p><p class="discret">Le bureau le prépare : reviens plus tard.</p></section>'
+        : !g.blocs.length ? '<section class="bloc"><p>Aucune équipe au planning ce jour-là.</p></section>'
+        : g.blocs.map(carte).join('')}
+      ${g && g._recu ? `<p class="pl-maj">Chargé à ${new Date(g._recu).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}</p>` : ''}`;
+    $$('[data-jour-pl]').forEach(b => b.onclick = () => aller('/planning/' + b.dataset.jourPl));
+  };
+  const g0 = garde();
+  if (g0) dessiner(g0); else chargement();
+  try {
+    const r = await appel('planning', { date });
+    r._recu = Date.now();
+    const tout = stock.lire('planning', {});
+    // Seuls aujourd'hui et le jour suivant restent gardés.
+    stock.ecrire('planning', Object.fromEntries(Object.entries(Object.assign(tout, { [date]: r })).filter(([d]) => d === auj || d === suivant)));
+    if (toujoursIci()) dessiner(r);
+  } catch (err) {
+    if (!toujoursIci()) return;
+    if (err instanceof HorsReseau) dessiner(g0, true); else erreurEcran(err);
+  }
 };
 
 // ---------------------------------------------------------------------------
@@ -1100,6 +1293,7 @@ ROUTES.saisie = async function (date) {
       a = null;
     }
   }
+  if (jourDeSemaine(a, date).avantService) { toast(MESSAGE_AVANT_SERVICE); return aller(accueilPerso()); }
   if (jourDeSemaine(a, date).boucle) { toast(MESSAGE_BOUCLE); return aller(accueilPerso()); }
   if (a && a.journee && !a.journee.modifiable) { toast('Journée déjà validée.'); return aller(accueilPerso()); }
   const absence = a && !a.journee && (a.justification || ((a.semaine || []).find(x => x.date === date) || {}).justification);
@@ -1198,7 +1392,7 @@ ROUTES.envoye = function () {
     ${nouveauChef ? `<div class="alerte jaune">${ICONES.attention}<span>${eq.remplace
       ? `<b>${esc(eq.remplace)}</b> est absent : <b>tu le remplaces aujourd'hui</b>.`
       : `Personne n'était prévu sur ${esc((eq.chantiers || []).map(nomCourt).join(', ') || 'ce chantier')} : <b>tu en es le chef aujourd'hui</b>.`}
-      C'est toi qui fais le <b>rapport de chantier</b> (au moins le restaurant et les repas) et qui valides ceux qui travaillent avec toi.</span></div>
+      C'est toi qui fais le <b>rapport de chantier</b> (au moins le nombre de repas payés) et qui valides ceux qui travaillent avec toi.</span></div>
       <button class="btn btn-principal" type="button" onclick="aller('/rapport/${e.date}')">Faire le rapport maintenant</button>` : ''}
     <section class="bloc">
       <div class="resume"><span>Jour</span><span>${esc(dateLongue(e.date))}</span></div>
@@ -1260,7 +1454,11 @@ async function redimensionner(fichier, cote = 1600, qualite = 0.78) {
  * Photo en plein écran (version 48). « charger » renvoie l'image (data URL). Toucher la photo passe de
  * « tout l'écran » à la taille réelle, que l'on parcourt du doigt ; « × » ou le retour du téléphone ferme.
  */
-function voirPhoto(titre, charger) {
+/**
+ * `deplacer` (version 52, facultatif) : { id, date, actuel, apres(chantier) } — une liste « Chantier de ce BL »
+ * sous la photo, pour le chef du chantier et le bureau ; changer de chantier range le BL sous l'autre chantier.
+ */
+function voirPhoto(titre, charger, deplacer) {
   const voile = document.createElement('div');
   voile.className = 'visionneuse';
   voile.setAttribute('role', 'dialog');
@@ -1268,8 +1466,27 @@ function voirPhoto(titre, charger) {
   voile.innerHTML = `
     <div class="visionneuse-tete"><span>${esc(nomCourt(titre))}</span>
       <button type="button" class="icone-btn" aria-label="Fermer" data-fermer>×</button></div>
-    <div class="visionneuse-corps"><p class="discret">Chargement…</p></div>`;
+    <div class="visionneuse-corps"><p class="discret">Chargement…</p></div>
+    ${deplacer ? '<div class="visionneuse-pied"><label for="blChantier">Chantier de ce BL</label><select id="blChantier" disabled><option>Chargement…</option></select></div>' : ''}`;
   document.body.appendChild(voile);
+  if (deplacer) {
+    const sel = voile.querySelector('#blChantier');
+    appel('bl_gars', { date: deplacer.date }).then(r => {
+      sel.innerHTML = optionsChantiersBl(r.chantiers, deplacer.actuel);
+      sel.disabled = false;
+    }, () => { sel.innerHTML = `<option>${esc(nomCourt(deplacer.actuel))}</option>`; });
+    sel.onchange = async () => {
+      sel.disabled = true;
+      try {
+        const r = await appel('deplacer_bl', { id: deplacer.id, chantier: sel.value });
+        deplacer.actuel = r.chantier;
+        voile.querySelector('.visionneuse-tete span').textContent = nomCourt(r.chantier);
+        toast(`BL rangé sous ${nomCourt(r.chantier)}.`);
+        deplacer.apres(r.chantier);
+      } catch (err) { toast(err.message); sel.value = deplacer.actuel; }
+      sel.disabled = false;
+    };
+  }
   const fermer = () => { voile.remove(); window.removeEventListener('popstate', surRetour); };
   const surRetour = () => fermer();
   // Le bouton retour du téléphone ferme la photo sans quitter le rapport.
@@ -1372,8 +1589,8 @@ ROUTES.rapport = async function (param) {
         <div><h1>Rapport de chantier</h1><p class="discret">${esc(dateLongue(date))}${auNomDe ? ` — au nom de ${esc(auNomDe)}` : ''}</p></div>
       </div>
       ${nouveauChef && !d.verrouille ? `<div class="alerte jaune">${ICONES.attention}<span>${d.bloc.remplacant ? `Tu remplaces <b>${esc(d.bloc.responsable)}</b> aujourd'hui.` : 'Tu es le chef de ce chantier aujourd\'hui.'}
-        <b>Obligatoire :</b> le restaurant et le nombre de repas payés, puis « Envoyer le rapport ». <b>Si tu peux :</b> l'avancement, les matériaux, les photos de bons de livraison et les remarques de chaque chantier.</span></div>` : ''}
-      ${d.verrouille ? `<div class="alerte jaune">${ICONES.attention}<span>Ce jour est passé en paie : le rapport ne se modifie plus. Adresse-toi au bureau.</span></div>`
+        <b>Obligatoire :</b> le nombre de repas payés au restaurant (0 si personne n'y est allé), puis « Envoyer le rapport ». <b>Si tu peux :</b> l'avancement, les matériaux, les photos de bons de livraison et les remarques de chaque chantier.</span></div>` : ''}
+      ${d.verrouille ? `<div class="alerte jaune">${ICONES.attention}<span>Ce jour est bouclé : le rapport ne se modifie plus. Adresse-toi au bureau.</span></div>`
         : envoye ? `<div class="alerte vert">${ICONES.ok}<span>Rapport envoyé. Tu peux le compléter et le renvoyer autant de fois que nécessaire.</span></div>`
         : `<div class="alerte jaune">${ICONES.attention}<span>Rapport pas encore envoyé. Le bouton en bas l'envoie, même s'il n'y a que les repas.</span></div>`}
 
@@ -1464,7 +1681,16 @@ ROUTES.rapport = async function (param) {
     $$('[data-voir]').forEach(b => b.onclick = () => {
       const [ci, k] = b.dataset.voir.split('-').map(Number);
       const bl = e.chantiers[ci].bl[k];
-      voirPhoto(e.chantiers[ci].libelle, () => appel('photo_bl', { date, auNomDe, id: bl.id }).then(r => r.image));
+      voirPhoto(e.chantiers[ci].libelle, () => appel('photo_bl', { date, auNomDe, id: bl.id }).then(r => r.image), {
+        id: bl.id, date, actuel: e.chantiers[ci].libelle,
+        // Version 52 : le BL change de chantier ; sous un autre chantier de ce rapport, il y passe, sinon il le quitte.
+        apres: chantier => {
+          e.chantiers.forEach(c => { c.bl = c.bl.filter(x => x !== bl); });
+          const dest = e.chantiers.find(c => c.libelle === chantier);
+          if (dest) dest.bl.push(bl);
+          if (toujoursIci()) dessiner();
+        },
+      });
     });
     $$('[data-voir-local]').forEach(b => b.onclick = () => {
       const [ci, k] = b.dataset.voirLocal.split('-').map(Number);
@@ -1586,7 +1812,7 @@ ROUTES.equipe = async function (date) {
         : `<div class="alerte vert">${ICONES.ok}<span>Repas : ${d.repas.payes} payés, ${d.repas.equipe} déclarés. Ça correspond.</span></div>`}
       <p class="erreur-champ" id="erreur" role="alert"></p>
       <div class="pied">
-        ${d.enPaie ? `<div class="alerte jaune">${ICONES.attention}<span>Ce jour est passé en paie : plus de saisie, d'ajout ni de modification du rapport. Adresse-toi au bureau.</span></div>`
+        ${d.enPaie ? `<div class="alerte jaune">${ICONES.attention}<span>Ce jour est bouclé : plus de saisie, d'ajout ni de modification du rapport. Adresse-toi au bureau.</span></div>`
           : `<div class="duo"><button class="btn btn-ajout btn-petit" type="button" onclick="aller('/chef-ajout/${date}')" ${(d.disponibles || []).length ? '' : 'disabled'}>${ICONES.plus} Ajouter un gars</button>
             <button class="btn btn-ajout btn-petit" type="button" onclick="aller('/interimaire/${date}')">${ICONES.plus} Ajouter un intérimaire</button></div>`}
         <button class="btn btn-vert" type="button" id="toutValider" ${aValider.length ? '' : 'disabled'}>${aValider.length ? `Tout valider (${aValider.length})` : 'Rien à valider'}</button>
@@ -2073,6 +2299,7 @@ ROUTES.bureau = async function (date) {
         : '<section class="bloc"><p class="discret">Aucun chantier ce jour-là.</p></section>'}
 
       ${d.horsChantier.length ? `<h2>Sans équipe</h2>${d.horsChantier.map(x => `<section class="bloc">${carte(x)}</section>`).join('')}` : ''}
+      ${(d.blSansEquipe || []).length ? `<div class="alerte gris" id="blSansEquipe">${ICONES.photo}<span>${d.blSansEquipe.length} BL envoyé${d.blSansEquipe.length > 1 ? 's' : ''} ce jour-là pour un chantier qu'aucune équipe ne mène : ${esc([...new Set(d.blSansEquipe.map(nomCourt))].join(', '))}. Ils sont dans l'onglet BL et dans le dossier Drive du chantier.</span></div>` : ''}
       ${verrou() ? '' : `<div class="duo">
         <button class="btn btn-ajout btn-petit" type="button" id="saisirPour">${ICONES.plus} Saisir pour quelqu'un</button>
         <button class="btn btn-ajout btn-petit" type="button" id="effacer">Effacer une journée saisie</button>

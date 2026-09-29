@@ -469,3 +469,31 @@ ul.points { margin: 0; padding-left: 18px; font-size: 14.5px; }
 .semaine-nav { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .semaine-nav .fleche { border: 0; background: var(--surface); border-radius: 10px; min-width: 44px; min-height: 36px; font: inherit; font-size: 20px; font-weight: 700; color: var(--encre); cursor: pointer; }
 .semaine-nav .fleche:disabled { opacity: .3; cursor: default; }
+
+/* Version 52 : écran « Planning du bureau » — une carte par équipe, la sienne d'abord (bordure jaune). */
+.pl-jours button { line-height: 1.2; }
+.pl-jours small { font-weight: 600; }
+.pl-bloc { border: 2px solid transparent; }
+.pl-bloc.moi { border-color: var(--jaune); }
+.pl-bloc .bloc-titre { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; font-family: var(--titre); font-size: 20px; font-weight: 700; line-height: 1.15; }
+.pl-bloc .bloc-titre .tag { background: var(--jaune); color: var(--encre); border-radius: 6px; padding: 2px 8px; font-size: 12px; font-family: inherit; white-space: nowrap; margin-top: 2px; }
+.pl-noms { display: flex; flex-wrap: wrap; gap: 4px 14px; font-weight: 600; font-size: 16px; }
+.pl-noms .absent { color: var(--gris); font-weight: 500; }
+.pl-infos { display: grid; grid-template-columns: 92px minmax(0, 1fr); gap: 6px 8px; font-size: 14px; margin: 0; }
+.pl-infos dt { color: var(--gris); font-weight: 500; }
+.pl-infos dd { margin: 0; overflow-wrap: anywhere; }
+.pl-infos dd div + div { margin-top: 2px; }
+.pl-maj { font-size: 13px; color: var(--gris); text-align: center; }
+
+/* Version 52 : bon de livraison depuis l'accueil (photo, puis chantier), et changement de chantier d'un BL. */
+.btn-bl { display: flex; align-items: center; justify-content: center; gap: 10px; position: relative; cursor: pointer; }
+.btn-bl input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.bl-apercu { width: 120px; aspect-ratio: 3 / 4; border-radius: 8px; background: var(--creux) center / cover no-repeat; margin: 0 auto; display: grid; place-items: center; }
+.bl-chantiers button { font-family: var(--titre); font-size: 18px; text-align: left; padding: 12px; }
+#blAutre, .bl-infos select, .visionneuse-pied select { width: 100%; font: inherit; font-size: 16px; padding: 10px; border-radius: 8px; border: 1px solid var(--trait); background: #fff; color: var(--encre); }
+.bl-ligne { display: flex; gap: 12px; align-items: center; }
+.bl-ligne + .bl-ligne { border-top: 1px solid var(--trait); padding-top: 12px; }
+.bl-vignette { width: 54px; flex: none; aspect-ratio: 3 / 4; border-radius: 6px; background: var(--creux) center / cover no-repeat; }
+.bl-infos { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.visionneuse-pied { padding: 12px 16px; padding-bottom: max(12px, env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: 6px; font-size: 14px; color: #ccc; }
+.duo.duo-bl { grid-template-columns: 2fr 1fr; }
