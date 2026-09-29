@@ -634,7 +634,8 @@ function dessinerAccueil(a, session) {
 
   let action;
   const boucle = !!jourDeSemaine(a, a.date).boucle;
-  // Version 52 : avant la mise en service, l'accueil n'offre rien à saisir (ni journée, ni BL, ni rapport, ni équipe).
+  // Version 52 : avant la mise en service, l'accueil n'offre rien à saisir (ni journée, ni BL, ni rapport, ni équipe)
+  // et ne montre pas le planning du jour (encart « Prévu au planning »).
   const avant = !!a.avantService;
   if (avant) action = `<div class="alerte gris">${ICONES.horloge}<span>L'application démarre le ${esc(dateLongue(a.avantService).toLowerCase())}. D'ici là, continue les carnets papier.</span></div>`;
   else if (!j && a.justification) action = `<div class="alerte jaune">${ICONES.attention}<span>${esc(messageAbsence(a.justification))}</span></div>`;
@@ -658,7 +659,7 @@ function dessinerAccueil(a, session) {
       <button class="icone-btn" type="button" aria-label="Se déconnecter" id="sortir">${ICONES.sortie}</button>
     </div>
     ${refus.length ? `<div class="alerte rouge">${ICONES.attention}<span>${refus.map(r => `<b>${esc(r.libelle)}</b> refusé : ${esc(r.erreur)}`).join('<br>')}</span></div>` : ''}
-    ${a.chantiersDuJour && a.chantiersDuJour.length && !(j && j.enAttente) ? `
+    ${avant ? '' : a.chantiersDuJour && a.chantiersDuJour.length && !(j && j.enAttente) ? `
       <section class="bloc">
         <div class="bloc-titre">${a.estResponsable ? "Chantiers de l'équipe" : 'Mes chantiers du jour'}</div>
         <div>${a.chantiersDuJour.map(ligneChantierAccueil).join('')}</div>
@@ -909,7 +910,8 @@ ROUTES.planning = async function (param) {
         <button type="button" data-jour-pl="${suivant}" aria-pressed="${date === suivant}">${esc(dateLongue(suivant).split(' ')[0])}<br><small>${jj(suivant)}</small></button>
       </div>
       ${horsReseau ? `<div class="alerte jaune">${ICONES.attention}<span>${g ? 'Pas de réseau : dernier planning chargé sur ce téléphone.' : "Pas de réseau, et ce planning n'a jamais été chargé sur ce téléphone."}</span></div>` : ''}
-      ${!g ? '' : !g.trouve ? '<section class="bloc"><p>Planning pas encore disponible pour ce jour.</p><p class="discret">Le bureau le prépare : reviens plus tard.</p></section>'
+      ${!g ? '' : g.avantService ? `<section class="bloc"><p>Planning visible à partir du ${esc(dateLongue(g.avantService).toLowerCase())}, jour de démarrage de l'appli.</p></section>`
+        : !g.trouve ? '<section class="bloc"><p>Planning pas encore disponible pour ce jour.</p><p class="discret">Le bureau le prépare : reviens plus tard.</p></section>'
         : !g.blocs.length ? '<section class="bloc"><p>Aucune équipe au planning ce jour-là.</p></section>'
         : g.blocs.map(carte).join('')}
       ${g && g._recu ? `<p class="pl-maj">Chargé à ${new Date(g._recu).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}</p>` : ''}`;
