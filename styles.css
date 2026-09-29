@@ -497,3 +497,33 @@ ul.points { margin: 0; padding-left: 18px; font-size: 14.5px; }
 .bl-infos { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
 .visionneuse-pied { padding: 12px 16px; padding-bottom: max(12px, env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: 6px; font-size: 14px; color: #ccc; }
 .duo.duo-bl { grid-template-columns: 2fr 1fr; }
+
+/* ------------------------------------------------------------------ version 54 : écrans du bureau sur ordinateur */
+/*
+ * À partir de 1024 px de large, et pour le seul profil bureau (classe posée par le routeur) :
+ * les formulaires s'élargissent un peu, l'écran bureau passe en pleine largeur avec les chantiers
+ * sur deux colonnes et la bande de jours en calendrier (une ligne par semaine, tout visible).
+ * Sous 1024 px, ou pour les gars et les chefs, rien ne change : format téléphone.
+ */
+@media (min-width: 1024px) {
+  body.profil-bureau .app { max-width: 680px; }
+
+  body.profil-bureau[data-ecran="bureau"] .app {
+    max-width: 1200px; padding-left: 24px; padding-right: 24px;
+    display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-content: start; align-items: start;
+  }
+  body.profil-bureau[data-ecran="bureau"] .app > * { grid-column: 1 / -1; }
+  body.profil-bureau[data-ecran="bureau"] .app > section.bloc { grid-column: auto; }
+  body.profil-bureau[data-ecran="bureau"] .app > section.bloc:only-of-type { grid-column: 1 / -1; }
+
+  /* Bande de jours en calendrier : sept colonnes, chaque jour dans la colonne de son jour de semaine. */
+  body.profil-bureau .bande-jours { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); overflow: visible; cursor: default; padding-bottom: 0; }
+  body.profil-bureau .bande-jours button { grid-column: var(--col, auto); flex-direction: row; justify-content: center; gap: 8px; padding: 7px 4px; min-height: 40px; }
+  body.profil-bureau .bande-jours button.lundi { margin-left: 0; }
+  body.profil-bureau .bande-jours button[aria-current="true"]::after { display: none; }
+  body.profil-bureau .leg-bande { margin-top: -6px; }
+
+  body.profil-bureau .resume-jour { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  body.profil-bureau[data-ecran="bureau"] .app > .duo,
+  body.profil-bureau[data-ecran="bureau"] .app > #absencesPrevues { max-width: 680px; width: 100%; justify-self: center; }
+}

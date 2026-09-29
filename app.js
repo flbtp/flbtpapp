@@ -12,7 +12,7 @@
  * Numéro affiché sur l'écran de connexion et l'écran bureau (plus sur l'accueil des gars : version 48).
  * À augmenter à chaque dépôt de nouveaux fichiers sur GitHub : c'est le seul numéro à changer.
  */
-const VERSION_APPLI = '53';
+const VERSION_APPLI = '54';
 
 // ---------------------------------------------------------------------------
 // Petits outils
@@ -253,10 +253,14 @@ function route() {
   const session = stock.lire('session');
   const [nom, ...reste] = location.hash.replace(/^#\/?/, '').split('/');
   const param = reste.join('/');                       // ex. « 2026-09-23/WILL%20F »
+  // Version 54 : sur un écran d'ordinateur, les écrans du bureau s'élargissent (styles.css, « profil-bureau ») ;
+  // les gars, les chefs et l'écran de connexion gardent le format téléphone.
+  document.body.classList.toggle('profil-bureau', !!(session && session.bureau));
   if (!session) return ecranConnexion();
   // Profil BUREAU : pas de journée à lui (version 35) ; son accueil est l'écran bureau.
   const cle = (!nom || nom === 'accueil' || nom === 'ma-journee') && session.bureau ? 'bureau' : nom;
   const f = ROUTES[cle] || ROUTES.accueil;
+  document.body.dataset.ecran = ROUTES[cle] ? cle : 'accueil';     // version 54 : mise en page ordinateur par écran (styles.css)
   window.scrollTo(0, 0);
   ecranAffiche = cle || 'accueil';
   f(param);
@@ -2289,7 +2293,8 @@ ROUTES.bureau = async function (date) {
           // Version 51 : un jour chômé (férié, pont…) se voit dans la bande, même à venir : son motif, fond hachuré.
           const chome = j.chome && ['AVENIR', 'VIDE', 'EN_COURS', 'HORS_CONTROLE'].includes(j.etat);
           const [lib, cls] = chome ? [j.chome, 'chome'] : [lib0, cls0];
-          return `<button type="button" data-jour-bureau="${j.date}" aria-current="${j.date === date}" ${j.chome ? `title="Jour chômé : ${esc(j.chome)}"` : ''}
+          // Version 54 : --col = colonne du jour (lundi 1 … dimanche 7), pour la bande en calendrier sur ordinateur.
+          return `<button type="button" data-jour-bureau="${j.date}" aria-current="${j.date === date}" ${j.chome ? `title="Jour chômé : ${esc(j.chome)}"` : ''} style="--col:${(new Date(j.date + 'T12:00:00Z').getUTCDay() + 6) % 7 + 1}"
             class="${cls} ${j.weekend ? 'weekend' : ''} ${new Date(j.date + 'T12:00:00Z').getUTCDay() === 1 ? 'lundi' : ''}">
             <small>${esc(jourCourt(j.date))}</small><b>${Number(j.date.slice(8))}</b>${j.etat === 'REGLER' ? `<span class="badge">${j.points}</span>` : esc(lib)}</button>`; }).join('')}
       </div>
