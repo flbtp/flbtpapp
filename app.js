@@ -2090,7 +2090,7 @@ ROUTES.bureau = async function (date) {
   let chomeOuvert = false;              // formulaire « jour chômé » déplié
   let ctl = d.controles;                // relu à chaque dessin : d est redemandé après chaque action
   const etatJour = () => d.jour || { etat: 'VIDE', points: 0, journees: 0, minutes: 0 };
-  const verrou = () => ['ENVOI', 'ENVOYE', 'HORS_APPLI'].includes(etatJour().etat);
+  const verrou = () => ['ENVOI', 'ENVOYE', 'HORS_APPLI', 'HORS_CONTROLE'].includes(etatJour().etat);   // v52 : avant la mise en service, lecture seule
   const pointsDe = nom => ctl.duJour.filter(c => c.personne === nom);
   const textePoints = nom => pointsDe(nom)
     .map(c => `<p class="point-controle ${c.cat}">${c.cat === 'corriger' ? '⚠' : '•'} ${esc(c.titre.split(' — ')[0])}</p>`).join('');
@@ -2215,7 +2215,7 @@ ROUTES.bureau = async function (date) {
       caseR('Chantiers', n.chantiers), caseR('Journées', lignes.filter(x => x.journee).length),
       caseR('Justifiées', n.justifiees), caseR('Heures', heuresTexte(n.minutes)),
     ] : [];
-    const verrouille = ['ENVOI', 'ENVOYE', 'HORS_APPLI'].includes(j.etat);
+    const verrouille = ['ENVOI', 'ENVOYE', 'HORS_APPLI', 'HORS_CONTROLE'].includes(j.etat);
     const chomeJustif = (d.justifies || []).find(x => x.type === 'JOUR_NON_TRAVAILLE');
     const motifsForm = (liste, attr) => `<div class="choix" style="--n:2">${liste.map(m => `<button type="button" ${attr}="${esc(m)}">${esc(m)}</button>`).join('')}</div>
       <input type="text" id="commentaireJour" placeholder="Commentaire (facultatif)" maxlength="300">`;
@@ -2228,7 +2228,7 @@ ROUTES.bureau = async function (date) {
           <button class="btn btn-sombre btn-petit" type="button" data-chome="ok" disabled>Déclarer le jour chômé</button></div></div>`
         : `<button class="option" type="button" data-chome="ouvrir">Déclarer jour chômé</button>`);
     }
-    if (['REGLER', 'A_COCHER', 'HORS_CONTROLE'].includes(j.etat)) {
+    if (['REGLER', 'A_COCHER'].includes(j.etat)) {
       actions.push(horsAppliOuvert ? `<div class="form-jour"><b>Traité hors appli</b><input type="text" id="commentaireHorsAppli" placeholder="Pourquoi ? (ex. saisi à la main dans le Suivi RH)" maxlength="300">
           <div class="duo"><button class="btn btn-clair btn-petit" type="button" data-hors-appli="fermer">Annuler</button>
           <button class="btn btn-sombre btn-petit" type="button" data-hors-appli="ok">Marquer traité hors appli</button></div></div>`
@@ -2247,7 +2247,7 @@ ROUTES.bureau = async function (date) {
       HORS_APPLI: `<p>${esc(j.horsAppli)}</p>`,
       EN_COURS: `<p class="discret">Contrôlée à partir de ${esc(String(((stock.lire('ref') || {}).parametres || {}).controlesHeure || 18))} h (réglage CONTROLES_HEURE).</p>`,
       VIDE: '<p class="discret">Rien de saisi ni d\'attendu ce jour-là.</p>',
-      HORS_CONTROLE: '<p class="discret">Jour antérieur à la mise en service (CONTROLES_DEPUIS).</p>',
+      HORS_CONTROLE: '<p class="discret">Jour antérieur à la mise en service (CONTROLES_DEPUIS) : lecture seule, il se traite hors appli.</p>',
     }[j.etat] || '';
     return `<div class="bandeau-jour ${couleur}">
       <div class="haut"><h2>${esc(dateLongue(date))}</h2>${etiquette ? `<span class="etat ${couleur}">${esc(etiquette)}</span>` : ''}</div>
