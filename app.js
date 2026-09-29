@@ -769,7 +769,7 @@ let photoBlPrise = null;                   // photo tout juste prise depuis l'ac
 /** Les chantiers proposés pour un BL : groupe par groupe (les siens, ceux du jour, les récents). */
 function optionsChantiersBl(chantiers, actuel) {
   // Version 55 : « Autres chantiers » (écran « BL récents » du bureau) et « Chantier actuel » s'il n'est dans aucun groupe.
-  const groupes = [['actuel', 'Chantier actuel'], ['miens', 'Mes chantiers du jour'], ['jour', 'Chantiers du jour'], ['recents', 'Chantiers récents'], ['tous', 'Autres chantiers']];
+  const groupes = [['actuel', 'Chantier actuel'], ['miens', 'Mes chantiers du jour'], ['jour', 'Autres chantiers du jour'], ['recents', 'Chantiers récents'], ['jourBureau', 'Chantiers du jour'], ['tous', 'Autres chantiers']];
   const liste = actuel && !chantiers.some(c => c.libelle === actuel) ? [{ libelle: actuel, groupe: 'actuel' }, ...chantiers] : chantiers;
   return groupes.map(([g, titre]) => {
     const l = liste.filter(c => c.groupe === g);
@@ -898,7 +898,7 @@ ROUTES.bl = async function () {
         <h2>Mes derniers BL</h2>
         ${donnees.derniers.map((b, k) => `
           <div class="bl-ligne">
-            <div class="bl-vignette"${(b.vignette || apercuEnvoi(b.cle)) ? ` style="background-image:url('${b.vignette || apercuEnvoi(b.cle)}')"` : ''}></div>
+            <button type="button" class="bl-vignette" data-bl-voir="${k}" aria-label="Voir le bon de livraison"${(b.vignette || apercuEnvoi(b.cle)) ? ` style="background-image:url('${b.vignette || apercuEnvoi(b.cle)}')"` : ''}>${(b.vignette || apercuEnvoi(b.cle)) ? '' : '<span class="voir">Voir</span>'}</button>
             <div class="bl-infos"><span class="sous">${esc(dateLongue(b.date))}</span>
               ${champDeplacementBl(b, k, donnees.chantiers, b.modifiable)}</div>
           </div>`).join('')}
@@ -908,6 +908,11 @@ ROUTES.bl = async function () {
     if ($('#blAutre')) $('#blAutre').onchange = ev => { if (ev.target.value) { choisi = ev.target.value; dessiner(); } };
     if ($('#envoyerBl')) $('#envoyerBl').onclick = envoyerBl;
     if (donnees) brancherDeplacementBl(donnees.derniers);
+    // Version 55 : toucher la vignette ouvre le BL en grand (photo lue dans Drive par le serveur).
+    $$('[data-bl-voir]').forEach(v => v.onclick = () => {
+      const b = donnees.derniers[+v.dataset.blVoir];
+      voirPhoto(chantierAffiche(b), () => appel('photo_bl', { date: b.date, id: b.id }).then(r => r.image));
+    });
   };
   surDeplacement = () => { if (toujoursIci()) dessiner(); };
   const envoyerBl = async () => {
@@ -2816,13 +2821,27 @@ ROUTES['bl-bureau'] = async function (param) {
             <div class="bl-ligne">
               <button type="button" class="bl-vignette" data-bl-voir="${k}" aria-label="Voir le bon de livraison"${b.vignette ? ` style="background-image:url('${b.vignette}')"` : ''}>${b.vignette ? '' : '<span class="voir">Voir</span>'}</button>
               <div class="bl-infos"><span class="sous">${esc(b.auteur || '—')}${b.ajoute ? ` · ${esc(String(b.ajoute).slice(11, 16))}` : ''}</span>
-                ${champDeplacementBl(b, k, d.chantiers, b.modifiable)}</div>
+                ${champDeplacementBl(b, k, d.chantiers, b.modifiable)}
+                ${b.modifiable ? `<button class="option" type="button" data-bl-suppr="${k}">Supprimer ce BL</button>` : ''}</div>
             </div>`).join('')}</section>`).join('')}`;
     if (!d) return;
     brancherDeplacementBl(d.bl);
     $$('[data-bl-voir]').forEach(v => v.onclick = () => {
       const b = d.bl[+v.dataset.blVoir];
       voirPhoto(chantierAffiche(b), () => appel('photo_bl', { date: b.date, id: b.id }).then(r => r.image));
+    });
+    // Version 55 : suppression d'un BL par le bureau, avec confirmation.
+    $$('[data-bl-suppr]').forEach(x => x.onclick = async () => {
+      const b = d.bl[+x.dataset.blSuppr];
+      const ok = await confirmer('Supprimer ce BL ?', `Suppression définitive : le BL de ${b.auteur || '—'} (${nomCourt(chantierAffiche(b))}, ${dateLongue(b.date)}) disparaît de l'appli et sa photo est supprimée de Drive. Impossible de revenir en arrière.`, 'Supprimer');
+      if (!ok) return;
+      x.disabled = true;
+      try {
+        await appel('supprimer_bl', { id: b.id });
+        d.bl = d.bl.filter(y => y !== b); stock.ecrire('blBureau', d);
+        toast('BL supprimé.');
+      } catch (err) { toast(err.message); }
+      if (toujoursIci()) dessiner();
     });
   };
   surDeplacement = () => { if (toujoursIci()) dessiner(); };
