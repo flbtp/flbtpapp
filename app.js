@@ -332,6 +332,9 @@ function age(donnee) { return Date.now() - ((donnee && donnee._recu) || 0); }
 // Écran : connexion
 // ---------------------------------------------------------------------------
 
+// Écoute du clavier de l'écran du code (ordinateur), retirée à chaque nouvel écran de connexion.
+let clavierConnexion = null;
+
 async function ecranConnexion() {
   let personnes = stock.lire('personnes');
   let choisi = stock.lire('dernierNom');
@@ -408,6 +411,24 @@ async function ecranConnexion() {
       dessiner();
     }
   };
+
+  // Sur ordinateur, le code se tape aussi au clavier : chiffres du haut ou pavé numérique (touche physique,
+  // donc même Verr. Num désactivé), Retour arrière / Suppr pour effacer, Entrée pour se connecter.
+  if (clavierConnexion) document.removeEventListener('keydown', clavierConnexion);
+  clavierConnexion = ev => {
+    if (!document.querySelector('.cases-code')) {          // plus sur l'écran du code : on n'écoute plus
+      if (!document.querySelector('[data-nom]')) { document.removeEventListener('keydown', clavierConnexion); clavierConnexion = null; }
+      return;
+    }
+    if (ev.ctrlKey || ev.altKey || ev.metaKey) return;
+    const chiffre = /^(Digit|Numpad)([0-9])$/.exec(ev.code || '');
+    if (chiffre) taper(chiffre[2]);
+    else if (ev.key === 'Backspace' || ev.key === 'Delete') taper('x');
+    else if (ev.key === 'Enter') valider();
+    else return;
+    ev.preventDefault();
+  };
+  document.addEventListener('keydown', clavierConnexion);
 
   dessiner();
   try {
