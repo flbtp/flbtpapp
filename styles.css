@@ -64,6 +64,8 @@ p { margin: 0; }
 
 /* Blocs */
 .bloc { background: var(--surface); border-radius: 14px; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+/* Version 55 : conteneur des cartes de l'écran bureau ; au téléphone, même empilement qu'avant (écart de .app). */
+.cartes-chantiers { display: flex; flex-direction: column; gap: inherit; }
 .bloc-titre { background: var(--encre); color: #fff; margin: -16px -16px 0; padding: 10px 16px; border-radius: 14px 14px 0 0; font-size: 14px; font-weight: 600; }
 .chantier { font-family: var(--titre); font-weight: 700; font-size: 27px; line-height: 1.1; }
 .chantier + .chantier { margin-top: 4px; padding-top: 4px; border-top: 1px solid var(--trait); }
@@ -283,6 +285,8 @@ button.compteur { cursor: pointer; }
 .bande-jours button { flex: 0 0 calc((100% - 24px) / 5); scroll-snap-align: start; background: var(--surface); border: 2px solid transparent; border-radius: 10px; padding: 6px 0; font: inherit; font-size: 13px; color: var(--encre); cursor: pointer; display: flex; flex-direction: column; align-items: center; line-height: 1.2; user-select: none; }
 .bande-jours button small { font-size: 12px; color: var(--gris); }
 .bande-jours button b { font-size: 17px; }
+/* Version 55 : jour d'avant la mise en service, non sélectionnable. */
+.bande-jours button:disabled { opacity: .4; cursor: default; }
 .bande-jours button.lundi { margin-left: 8px; }
 .bande-jours button.lundi:first-child { margin-left: 0; }
 .bande-jours .probleme { border-color: var(--rouge); color: var(--rouge); }
@@ -495,6 +499,16 @@ ul.points { margin: 0; padding-left: 18px; font-size: 14.5px; }
 .bl-ligne + .bl-ligne { border-top: 1px solid var(--trait); padding-top: 12px; }
 .bl-vignette { width: 54px; flex: none; aspect-ratio: 3 / 4; border-radius: 6px; background: var(--creux) center / cover no-repeat; }
 .bl-infos { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+/* Version 55 : état du changement de chantier d'un BL, vignette cliquable (écran « BL récents » du bureau), lien texte. */
+.bl-etat { font-size: 14px; color: var(--gris); }
+.bl-etat.ok { color: var(--vert); }
+.bl-etat.attente { color: #8a6100; }
+.bl-etat.echec { color: var(--rouge); }
+.visionneuse-pied .bl-etat { color: #ddd; }
+.visionneuse-pied .bl-etat.echec { color: #ffb4a8; }
+button.bl-vignette { border: 0; padding: 0; cursor: pointer; display: flex; align-items: flex-end; justify-content: center; }
+button.bl-vignette .voir { font-size: 11px; color: var(--gris); padding-bottom: 6px; }
+.lien { background: none; border: 0; padding: 0; font: inherit; color: inherit; text-decoration: underline; cursor: pointer; }
 .visionneuse-pied { padding: 12px 16px; padding-bottom: max(12px, env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: 6px; font-size: 14px; color: #ccc; }
 .duo.duo-bl { grid-template-columns: 2fr 1fr; }
 
@@ -513,8 +527,11 @@ ul.points { margin: 0; padding-left: 18px; font-size: 14.5px; }
     display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-content: start; align-items: start;
   }
   body.profil-bureau[data-ecran="bureau"] .app > * { grid-column: 1 / -1; }
-  body.profil-bureau[data-ecran="bureau"] .app > section.bloc { grid-column: auto; }
-  body.profil-bureau[data-ecran="bureau"] .app > section.bloc:only-of-type { grid-column: 1 / -1; }
+  /* Version 55 : les cartes en deux colonnes qui se remplissent de haut en bas (colonnes CSS), sans le trou
+     qu'une ligne de grille laissait sous une carte courte quand sa voisine est longue. Une seule carte : pleine largeur. */
+  body.profil-bureau[data-ecran="bureau"] .cartes-chantiers { display: block; column-count: 2; column-gap: 20px; }
+  body.profil-bureau[data-ecran="bureau"] .cartes-chantiers:has(> section.bloc:only-child) { column-count: 1; }
+  body.profil-bureau[data-ecran="bureau"] .cartes-chantiers > section.bloc { break-inside: avoid; margin-bottom: 20px; }
 
   /* Bande de jours en calendrier : sept colonnes, chaque jour dans la colonne de son jour de semaine. */
   body.profil-bureau .bande-jours { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); overflow: visible; cursor: default; padding-bottom: 0; }
@@ -525,5 +542,6 @@ ul.points { margin: 0; padding-left: 18px; font-size: 14.5px; }
 
   body.profil-bureau .resume-jour { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   body.profil-bureau[data-ecran="bureau"] .app > .duo,
-  body.profil-bureau[data-ecran="bureau"] .app > #absencesPrevues { max-width: 680px; width: 100%; justify-self: center; }
+  body.profil-bureau[data-ecran="bureau"] .app > #absencesPrevues,
+  body.profil-bureau[data-ecran="bureau"] .app > #blRecents { max-width: 680px; width: 100%; justify-self: center; }
 }
