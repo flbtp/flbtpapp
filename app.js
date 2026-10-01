@@ -12,7 +12,7 @@
  * Numéro affiché sur l'écran de connexion et l'écran bureau (plus sur l'accueil des gars : version 48).
  * À augmenter à chaque dépôt de nouveaux fichiers sur GitHub : c'est le seul numéro à changer.
  */
-const VERSION_APPLI = '56';
+const VERSION_APPLI = '57';
 
 // ---------------------------------------------------------------------------
 // Petits outils
@@ -46,6 +46,11 @@ function dateLongue(iso) {
   const [a, m, j] = iso.split('-').map(Number);
   const t = new Date(a, m - 1, j).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
   return t.charAt(0).toUpperCase() + t.slice(1);
+}
+
+function dateCourte(iso) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(iso || ''));
+  return m ? `${m[3]}/${m[2]}` : '';
 }
 
 function jourCourt(iso) {
@@ -1632,24 +1637,39 @@ ROUTES.rapport = async function (param) {
       <div class="bloc-titre">${esc(nomCourt(c.libelle))}</div>
       ${c.hors ? `<p class="discret">Hors planning — déclaré par ${esc(c.declarePar.join(', '))}.</p>` : ''}
       <h2>Avancement</h2>
-      ${c.avancement.map((t, k) => `
-        <div class="ligne">
-          <input type="text" aria-label="Tâche" value="${esc(t.tache)}" data-ch="${i}" data-av="${k}" data-k="tache" placeholder="Ex. bicouche">
+      <p class="discret aide-avancement">En % : où en est la tâche, au total. En quantité : ce qui a été fait aujourd'hui. Les tâches déjà déclarées sur ce chantier sont reprises avec leur dernier état.</p>
+      ${c.avancement.map((t, k) => {
+        // Version 57 : une tâche connue (déclarée un jour d'avant) garde son nom et son mode ; terminée, elle se replie.
+        const connue = !!t.avant;
+        const finieAvant = connue && t.avant.mode !== 'QUANTITE' && Number(t.avant.pourcentage) >= 100;
+        if (finieAvant && !t.duJour && !t.rouverte) return `
+        <div class="ligne tache-finie" data-tache-finie="${i}-${k}">
+          <div class="ligne-tete"><span>✓ ${esc(t.tache)}</span><button class="btn-lien" type="button" data-rouvrir="${i}-${k}">Rouvrir</button></div>
+          <span class="discret">terminée le ${dateCourte(t.avant.date)}</span>
+        </div>`;
+        const nom = connue
+          ? `<div class="ligne-tete"><span>${esc(t.tache)}</span>${t.mode === 'QUANTITE' ? '' : `<span class="discret">avant : ${Number(t.avant.pourcentage) || 0} % le ${dateCourte(t.avant.date)}</span>`}</div>`
+          : `<input type="text" aria-label="Tâche" value="${esc(t.tache)}" data-ch="${i}" data-av="${k}" data-k="tache" placeholder="Ex. bicouche">
           <div class="choix" style="--n:2">
-            <button type="button" data-mode="${i}-${k}" data-v="POURCENTAGE" aria-pressed="${t.mode !== 'QUANTITE'}">En %</button>
-            <button type="button" data-mode="${i}-${k}" data-v="QUANTITE" aria-pressed="${t.mode === 'QUANTITE'}">En quantité</button>
-          </div>
+            <button type="button" data-mode="${i}-${k}" data-v="POURCENTAGE" aria-pressed="${t.mode !== 'QUANTITE'}">% du total</button>
+            <button type="button" data-mode="${i}-${k}" data-v="QUANTITE" aria-pressed="${t.mode === 'QUANTITE'}">Quantité du jour</button>
+          </div>`;
+        const suppr = connue ? '' : `<button class="suppr" type="button" data-suppr-av="${i}-${k}" aria-label="Retirer la tâche">×</button>`;
+        return `
+        <div class="ligne">
+          ${nom}
           ${t.mode === 'QUANTITE' ? `
+            ${connue ? `<span class="discret">déjà fait : ${esc(String(t.avant.cumul))} ${esc(t.avant.unite || '')} (dernier jour le ${dateCourte(t.avant.date)})</span>` : ''}
             <div class="materiau" style="grid-template-columns:1fr 1fr 44px">
-              <input type="text" inputmode="decimal" aria-label="Quantité faite" value="${esc(t.quantite || '')}" data-ch="${i}" data-av="${k}" data-k="quantite" placeholder="Ex. 120">
+              <input type="text" inputmode="decimal" aria-label="Quantité faite aujourd'hui" value="${esc(t.quantite || '')}" data-ch="${i}" data-av="${k}" data-k="quantite" placeholder="${connue ? "Aujourd'hui (vide si rien)" : 'Ex. 120'}">
               <select aria-label="Unité" data-ch="${i}" data-av="${k}" data-k="unite">${['m2', 'ml', 'm3', 't', 'un'].map(u => `<option ${u === (t.unite || 'm2') ? 'selected' : ''}>${u}</option>`).join('')}</select>
-              <button class="suppr" type="button" data-suppr-av="${i}-${k}" aria-label="Retirer la tâche">×</button>
+              ${suppr || '<span></span>'}
             </div>`
           : `<div class="ligne-tete"><input type="range" min="0" max="100" step="5" value="${Number(t.pourcentage) || 0}" data-ch="${i}" data-av="${k}" data-k="pourcentage" aria-label="Avancement en pourcent" style="flex:1">
               <b class="valeur" style="min-width:52px;text-align:right">${Number(t.pourcentage) || 0} %</b>
-              <button class="suppr" type="button" data-suppr-av="${i}-${k}" aria-label="Retirer la tâche">×</button></div>
+              ${suppr}</div>
             <div class="barre"><i class="${Number(t.pourcentage) >= 100 ? 'fini' : ''}" style="width:${Number(t.pourcentage) || 0}%"></i></div>`}
-        </div>`).join('')}
+        </div>`; }).join('')}
       <button class="btn btn-ajout" type="button" data-ajout-tache="${i}">${ICONES.plus} Ajouter une tâche</button>
 
       <h2>Matériaux utilisés</h2>
@@ -1750,6 +1770,10 @@ ROUTES.rapport = async function (param) {
       const [i, k] = b.dataset.supprAv.split('-').map(Number);
       e.chantiers[i].avancement.splice(k, 1); dessiner();
     });
+    $$('[data-rouvrir]').forEach(b => b.onclick = () => {
+      const [i, k] = b.dataset.rouvrir.split('-').map(Number);
+      e.chantiers[i].avancement[k].rouverte = true; dessiner();
+    });
     $$('[data-suppr-mat]').forEach(b => b.onclick = () => {
       const [i, k] = b.dataset.supprMat.split('-').map(Number);
       e.chantiers[i].materiaux.splice(k, 1); dessiner();
@@ -1830,8 +1854,12 @@ ROUTES.rapport = async function (param) {
     for (const c of e.chantiers) {
       const vide = c.avancement.find(t => !String(t.tache).trim());
       if (vide) { e.ouvert = e.chantiers.indexOf(c); dessiner(); $('#erreur').textContent = `${c.libelle} : donne un nom à chaque tâche, ou retire-la.`; return; }
-      const sansQuantite = c.avancement.find(t => t.mode === 'QUANTITE' && !(Number(String(t.quantite).replace(',', '.')) > 0));
+      // Version 57 : une tâche connue en quantité peut rester vide (rien fait ce jour-là) ; une nouvelle, non.
+      const sansQuantite = c.avancement.find(t => t.mode === 'QUANTITE' && !t.avant && !(Number(String(t.quantite).replace(',', '.')) > 0));
       if (sansQuantite) { e.ouvert = e.chantiers.indexOf(c); dessiner(); $('#erreur').textContent = `${c.libelle} : indique la quantité faite pour « ${sansQuantite.tache} ».`; return; }
+      const cles = c.avancement.map(t => String(t.tache).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ').trim());
+      const double = cles.find((x, n) => cles.indexOf(x) !== n);
+      if (double) { e.ouvert = e.chantiers.indexOf(c); dessiner(); $('#erreur').textContent = `${c.libelle} : la tâche « ${c.avancement[cles.indexOf(double)].tache} » est en double.`; return; }
       const sansQte = c.materiaux.find(m => !(Number(String(m.quantite).replace(',', '.')) > 0));
       if (sansQte) { e.ouvert = e.chantiers.indexOf(c); dessiner(); $('#erreur').textContent = `${c.libelle} : indique la quantité de chaque matériau, ou retire-le.`; return; }
     }
@@ -1840,7 +1868,8 @@ ROUTES.rapport = async function (param) {
       const r = await envoyer('enregistrer_rapport', {
         date, auNomDe, restaurant: e.restaurant.trim(), repasPayes: e.repasPayes,
         chantiers: e.chantiers.map(c => ({
-          libelle: c.libelle, remarques: c.remarques.trim(), avancement: c.avancement,
+          libelle: c.libelle, remarques: c.remarques.trim(),
+          avancement: c.avancement.map(t => ({ tache: t.tache, mode: t.mode, pourcentage: t.pourcentage, quantite: t.quantite, unite: t.unite })),
           materiaux: c.materiaux.map(m => ({ ...m, quantite: String(m.quantite).replace(',', '.') })),
         })),
       }, `Rapport du ${dateLongue(date)}`);

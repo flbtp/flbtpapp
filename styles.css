@@ -153,6 +153,10 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .barre { height: 8px; border-radius: 4px; background: var(--trait); overflow: hidden; }
 .barre i { display: block; height: 100%; background: var(--jaune); }
 .barre i.fini { background: var(--vert); }
+.aide-avancement { margin: -4px 0 8px; }
+.tache-finie { background: var(--vert-pale); }
+.tache-finie .ligne-tete span:first-child { color: var(--vert); }
+.btn-lien { border: none; background: none; color: var(--marque); font-weight: 600; font-size: 15px; cursor: pointer; padding: 6px 0; }
 .materiau { display: grid; grid-template-columns: 1.3fr 0.9fr 1.1fr 44px; gap: 8px; align-items: center; }
 .suppr { width: 44px; height: 44px; border: none; border-radius: 8px; background: var(--fond); color: var(--rouge); font-size: 22px; cursor: pointer; }
 .pas { display: flex; align-items: center; gap: 14px; }
