@@ -411,7 +411,7 @@ ul.points { margin: 0; padding-left: 18px; font-size: 14.5px; }
 .resume-jour { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 .case-r { background: rgba(255,255,255,.65); border-radius: 8px; padding: 6px 8px; font-size: 14px; display: flex; justify-content: space-between; align-items: center; gap: 6px; }
 .case-r b { font-family: var(--titre); font-size: 20px; }
-.case-r.ko { background: var(--rouge-pale); color: var(--rouge); }
+.case-r.ko { background: var(--rouge); color: #fff; }
 .case-r.ok { background: var(--vert-pale); color: var(--vert); }
 .bandeau-jour.rouge .case-r:not(.ko):not(.ok) { background: var(--surface); }
 .indice { font-size: 13.5px; color: var(--gris); text-align: center; }
