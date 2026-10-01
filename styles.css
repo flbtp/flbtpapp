@@ -142,7 +142,6 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .jour.chef-a-faire svg { width: 18px; height: 18px; }
 .jour.ok[data-jour-chef] { cursor: pointer; }
 .jour.bouclee { background: var(--creux); color: var(--gris); }
-.barre i.fini { background: var(--marque); }
 .jour.saisie { background: var(--surface); color: var(--encre); }
 .jour.a-faire { background: var(--surface); color: var(--encre); border-color: var(--jaune); cursor: pointer; }
 
@@ -150,9 +149,6 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .ligne { display: flex; flex-direction: column; gap: 8px; padding: 12px; border-radius: 10px; background: var(--fond); }
 .ligne-tete { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .ligne-tete span:first-child { font-weight: 600; }
-.barre { height: 8px; border-radius: 4px; background: var(--trait); overflow: hidden; }
-.barre i { display: block; height: 100%; background: var(--jaune); }
-.barre i.fini { background: var(--vert); }
 .aide-avancement { margin: -4px 0 8px; }
 .tache-finie { background: var(--vert-pale); }
 .tache-finie .ligne-tete span:first-child { color: var(--vert); }

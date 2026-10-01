@@ -1551,8 +1551,10 @@ async function redimensionner(fichier, cote = 1600, qualite = 0.78) {
  * « tout l'écran » à la taille réelle, que l'on parcourt du doigt ; « × » ou le retour du téléphone ferme.
  */
 /**
- * `deplacer` (version 52, facultatif) : { id, date, actuel, apres(chantier) } — une liste « Chantier de ce BL »
+ * `deplacer` (version 52, facultatif) : { id, date, actuel, modifiable, apres(chantier) } — une liste « Chantier de ce BL »
  * sous la photo, pour le chef du chantier et le bureau ; changer de chantier range le BL sous l'autre chantier.
+ * Version 57 : `modifiable` faux (jour bouclé) grise la liste (« Jour bouclé »), comme dans « Mes BL » ; un rangement
+ * refusé par le serveur remet le BL sous son chantier d'origine (titre et rapport).
  */
 function voirPhoto(titre, charger, deplacer) {
   const voile = document.createElement('div');
@@ -1572,15 +1574,22 @@ function voirPhoto(titre, charger, deplacer) {
     let chantiers = null;
     const dessinerChoix = () => {
       if (!document.body.contains(voile) || !chantiers) return;
-      zone.innerHTML = champDeplacementBl(bl, 0, chantiers, true);
+      zone.innerHTML = champDeplacementBl(bl, 0, chantiers, !!deplacer.modifiable);
       const sel = zone.querySelector('select'), bouton = zone.querySelector('[data-bl-ranger]');
       sel.onchange = () => { bouton.hidden = sel.value === chantierAffiche(bl); };
-      bouton.onclick = () => {
+      bouton.onclick = async () => {
         bouton.hidden = true;
-        const vers = sel.value;
-        voile.querySelector('.visionneuse-tete span').textContent = nomCourt(vers);
+        const vers = sel.value, origine = chantierAffiche(bl);
+        const titre = voile.querySelector('.visionneuse-tete span');
+        titre.textContent = nomCourt(vers);
         deplacer.apres(vers);                       // le rapport montre tout de suite le BL sous son nouveau chantier
-        deplacerBlFiable(bl.id, vers);
+        await deplacerBlFiable(bl.id, vers);
+        // Version 57 : refus du serveur (jour bouclé, droits…) — le BL revient sous son chantier d'origine.
+        const etat = etatsDeplacement()[bl.id];
+        if (etat && etat.etat === 'echec') {
+          if (document.body.contains(voile)) titre.textContent = nomCourt(origine);
+          deplacer.apres(origine);
+        }
       };
     };
     const avant = surDeplacement;
@@ -1667,8 +1676,7 @@ ROUTES.rapport = async function (param) {
             </div>`
           : `<div class="ligne-tete"><input type="range" min="0" max="100" step="5" value="${Number(t.pourcentage) || 0}" data-ch="${i}" data-av="${k}" data-k="pourcentage" aria-label="Avancement en pourcent" style="flex:1">
               <b class="valeur" style="min-width:52px;text-align:right">${Number(t.pourcentage) || 0} %</b>
-              ${suppr}</div>
-            <div class="barre"><i class="${Number(t.pourcentage) >= 100 ? 'fini' : ''}" style="width:${Number(t.pourcentage) || 0}%"></i></div>`}
+              ${suppr}</div>`}
         </div>`; }).join('')}
       <button class="btn btn-ajout" type="button" data-ajout-tache="${i}">${ICONES.plus} Ajouter une tâche</button>
 
@@ -1749,12 +1757,8 @@ ROUTES.rapport = async function (param) {
       const c = e.chantiers[+el.dataset.ch], t = c.avancement[+el.dataset.av];
       t[el.dataset.k] = el.dataset.k === 'pourcentage' ? Number(el.value) : el.value;
       if (el.dataset.k !== 'pourcentage') return;
-      // On met à jour le texte et la barre à la main : redessiner couperait le glissement en cours.
-      const ligne = el.closest('.ligne');
-      ligne.querySelector('.valeur').textContent = `${el.value} %`;
-      const barre = ligne.querySelector('.barre i');
-      barre.style.width = el.value + '%';
-      barre.className = Number(el.value) >= 100 ? 'fini' : '';
+      // On met à jour le nombre à la main : redessiner couperait le glissement en cours.
+      el.closest('.ligne').querySelector('.valeur').textContent = `${el.value} %`;
     });
     $$('[data-mat]').forEach(el => el.oninput = el.onchange = () => {
       const c = e.chantiers[+el.dataset.ch], m = c.materiaux[+el.dataset.mat];
@@ -1816,6 +1820,7 @@ ROUTES.rapport = async function (param) {
       const bl = e.chantiers[ci].bl[k];
       voirPhoto(e.chantiers[ci].libelle, () => appel('photo_bl', { date, auNomDe, id: bl.id }).then(r => r.image), {
         id: bl.id, date, actuel: e.chantiers[ci].libelle,
+        modifiable: !d.verrouille,                 // version 57 : jour bouclé, liste grisée (« Jour bouclé »)
         // Version 52 : le BL change de chantier ; sous un autre chantier de ce rapport, il y passe, sinon il le quitte.
         apres: chantier => {
           e.chantiers.forEach(c => { c.bl = c.bl.filter(x => x !== bl); });
