@@ -12,7 +12,7 @@
  * Numéro affiché sur l'écran de connexion et l'écran bureau (plus sur l'accueil des gars : version 48).
  * À augmenter à chaque dépôt de nouveaux fichiers sur GitHub : c'est le seul numéro à changer.
  */
-const VERSION_APPLI = '57';
+const VERSION_APPLI = '58';
 
 // ---------------------------------------------------------------------------
 // Petits outils
@@ -1681,13 +1681,28 @@ ROUTES.rapport = async function (param) {
       <button class="btn btn-ajout" type="button" data-ajout-tache="${i}">${ICONES.plus} Ajouter une tâche</button>
 
       <h2>Matériaux utilisés</h2>
-      ${c.materiaux.map((m, k) => `
+      <p class="discret aide-avancement">Quantité utilisée aujourd'hui. Les matériaux déjà déclarés sur ce chantier sont repris : laisse vide ce qui n'a pas servi.</p>
+      ${c.materiaux.map((m, k) => {
+        // Version 58 : un matériau déjà déclaré sur ce chantier garde son nom et son unité (celle du référentiel), sans « × ».
+        const unite = `<span class="unite-fixe">${esc(m.unite || '')}</span>`;
+        const quantite = `<input type="text" inputmode="decimal" aria-label="Quantité utilisée aujourd'hui" value="${esc(m.quantite === undefined || m.quantite === null ? '' : String(m.quantite))}" data-ch="${i}" data-mat="${k}" data-k="quantite"${m.avant ? ` placeholder="Aujourd'hui (vide si rien)"` : ''}>`;
+        const suppr = `<button class="suppr" type="button" data-suppr-mat="${i}-${k}" aria-label="Retirer le matériau">×</button>`;
+        if (m.avant) return `
+        <div class="ligne materiau-repris">
+          <div class="ligne-tete"><span>${esc(m.materiau)}</span></div>
+          <span class="discret">déjà déclaré : ${esc(String(m.avant.cumul).replace('.', ','))} ${esc(m.unite || '')} (dernier jour le ${dateCourte(m.avant.date)})</span>
+          <div class="materiau" style="grid-template-columns:1fr minmax(44px, auto)">${quantite}${unite}</div>
+        </div>`;
+        if (m.inactif) return `
+        <div class="ligne">
+          <div class="ligne-tete"><span>${esc(m.materiau)} : ${esc(String(m.quantite))} ${esc(m.unite || '')}</span>${suppr}</div>
+          <span class="erreur-champ">N'est plus dans la liste des matériaux : retire-le.</span>
+        </div>`;
+        return `
         <div class="materiau">
           <select aria-label="Matériau" data-ch="${i}" data-mat="${k}" data-k="materiau">${optionsMateriaux(d.listeMateriaux, m.materiau)}</select>
-          <input type="text" inputmode="decimal" aria-label="Quantité" value="${esc(m.quantite)}" data-ch="${i}" data-mat="${k}" data-k="quantite">
-          <select aria-label="Unité" data-ch="${i}" data-mat="${k}" data-k="unite">${['m3', 't', 'litres', 'm2', 'ml', 'un'].map(u => `<option ${u === m.unite ? 'selected' : ''}>${u}</option>`).join('')}</select>
-          <button class="suppr" type="button" data-suppr-mat="${i}-${k}" aria-label="Retirer le matériau">×</button>
-        </div>`).join('')}
+          ${quantite}${unite}${suppr}
+        </div>`; }).join('')}
       <button class="btn btn-ajout" type="button" data-ajout-mat="${i}">${ICONES.plus} Ajouter un matériau</button>
 
       <h2>Bons de livraison</h2>
@@ -1702,7 +1717,7 @@ ROUTES.rapport = async function (param) {
       </div>
 
       <div class="champ"><label for="rem${i}">Remarques sur ce chantier</label>
-        <textarea id="rem${i}" data-ch="${i}" data-k="remarques" placeholder="Ex. redescendu 4,5 m3 de 10/14 au dépôt">${esc(c.remarques)}</textarea></div>
+        <textarea id="rem${i}" data-ch="${i}" data-k="remarques" placeholder="Ex. sous-traitant, engin loué, 4,5 m3 de 10/14 redescendus au dépôt">${esc(c.remarques)}</textarea></div>
     </section>`;
 
   // Version 55 : sous « Repas payés », les repas « Restaurant » déclarés par l'équipe à cette heure (information, sans blocage).
@@ -1745,7 +1760,7 @@ ROUTES.rapport = async function (param) {
 
       <p class="erreur-champ" id="erreur" role="alert"></p>
       ${d.verrouille ? '' : `<div class="pied"><button class="btn btn-principal" type="button" id="envoyer">${envoye ? 'Renvoyer le rapport' : 'Envoyer le rapport'}</button>
-        ${auNomDe && (d.rapport || d.chantiers.some(c => c.avancement.length || c.materiaux.length || c.remarques)) ? '<button class="option" type="button" id="effacerRapport">Effacer le rapport</button>' : ''}</div>`}`;
+        ${auNomDe && (d.rapport || d.chantiers.some(c => c.avancement.some(t => t.duJour) || c.materiaux.some(m => m.duJour) || c.remarques)) ? '<button class="option" type="button" id="effacerRapport">Effacer le rapport</button>' : ''}</div>`}`;
 
     $('#resto').oninput = ev => { e.restaurant = ev.target.value; };
     const majRepas = () => { $('#nbRepas').textContent = e.repasPayes; if ($('#repasEquipe')) $('#repasEquipe').innerHTML = texteRepasEquipe(); };
@@ -1763,7 +1778,8 @@ ROUTES.rapport = async function (param) {
     $$('[data-mat]').forEach(el => el.oninput = el.onchange = () => {
       const c = e.chantiers[+el.dataset.ch], m = c.materiaux[+el.dataset.mat];
       m[el.dataset.k] = el.value;
-      if (el.dataset.k === 'materiau' && unites[el.value]) { m.unite = unites[el.value]; dessiner(); }
+      // Version 58 : l'unité est celle du référentiel, jamais choisie.
+      if (el.dataset.k === 'materiau') { m.unite = unites[el.value] || ''; dessiner(); }
     });
     $$('[data-k="remarques"]').forEach(el => el.oninput = () => { e.chantiers[+el.dataset.ch].remarques = el.value; });
     $$('[data-mode]').forEach(b => b.onclick = () => {
@@ -1786,8 +1802,10 @@ ROUTES.rapport = async function (param) {
       e.chantiers[+b.dataset.ajoutTache].avancement.push({ tache: '', pourcentage: 0, mode: 'POURCENTAGE' }); dessiner();
     });
     $$('[data-ajout-mat]').forEach(b => b.onclick = () => {
-      const m = d.listeMateriaux[0] || { materiau: '', unite: 'm3' };
-      e.chantiers[+b.dataset.ajoutMat].materiaux.push({ materiau: m.materiau, quantite: '', unite: m.unite }); dessiner();
+      // Version 58 : le premier matériau de la liste qui n'est pas déjà sur ce chantier.
+      const c = e.chantiers[+b.dataset.ajoutMat];
+      const m = d.listeMateriaux.find(x => !c.materiaux.some(y => y.materiau === x.materiau)) || d.listeMateriaux[0] || { materiau: '', unite: '' };
+      c.materiaux.push({ materiau: m.materiau, quantite: '', unite: m.unite }); dessiner();
     });
     $$('[data-photo]').forEach(input => input.onchange = async ev => {
       const f = ev.target.files[0]; if (!f) return;
@@ -1865,8 +1883,14 @@ ROUTES.rapport = async function (param) {
       const cles = c.avancement.map(t => String(t.tache).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ').trim());
       const double = cles.find((x, n) => cles.indexOf(x) !== n);
       if (double) { e.ouvert = e.chantiers.indexOf(c); dessiner(); $('#erreur').textContent = `${c.libelle} : la tâche « ${c.avancement[cles.indexOf(double)].tache} » est en double.`; return; }
-      const sansQte = c.materiaux.find(m => !(Number(String(m.quantite).replace(',', '.')) > 0));
-      if (sansQte) { e.ouvert = e.chantiers.indexOf(c); dessiner(); $('#erreur').textContent = `${c.libelle} : indique la quantité de chaque matériau, ou retire-le.`; return; }
+      // Version 58 : un matériau repris peut rester vide (rien utilisé ce jour-là) ; un nouveau, non ; pas de doublon.
+      const inactif = c.materiaux.find(m => m.inactif);
+      if (inactif) { e.ouvert = e.chantiers.indexOf(c); dessiner(); $('#erreur').textContent = `${c.libelle} : « ${inactif.materiau} » n'est plus dans la liste des matériaux : retire-le.`; return; }
+      const sansQte = c.materiaux.find(m => !m.avant && !(Number(String(m.quantite).replace(',', '.')) > 0));
+      if (sansQte) { e.ouvert = e.chantiers.indexOf(c); dessiner(); $('#erreur').textContent = `${c.libelle} : indique la quantité de chaque nouveau matériau, ou retire-le.`; return; }
+      const noms = c.materiaux.map(m => String(m.materiau).trim());
+      const doublon = noms.find((x, n) => noms.indexOf(x) !== n);
+      if (doublon) { e.ouvert = e.chantiers.indexOf(c); dessiner(); $('#erreur').textContent = `${c.libelle} : « ${doublon} » est déjà dans la liste : complète sa ligne.`; return; }
     }
     const bouton = $('#envoyer'); bouton.disabled = true; bouton.textContent = 'Envoi…';
     try {
@@ -1875,7 +1899,7 @@ ROUTES.rapport = async function (param) {
         chantiers: e.chantiers.map(c => ({
           libelle: c.libelle, remarques: c.remarques.trim(),
           avancement: c.avancement.map(t => ({ tache: t.tache, mode: t.mode, pourcentage: t.pourcentage, quantite: t.quantite, unite: t.unite })),
-          materiaux: c.materiaux.map(m => ({ ...m, quantite: String(m.quantite).replace(',', '.') })),
+          materiaux: c.materiaux.map(m => ({ materiau: m.materiau, quantite: String(m.quantite === undefined || m.quantite === null ? '' : m.quantite).replace(',', '.') })),
         })),
       }, `Rapport du ${dateLongue(date)}`);
       if (!r.enAttente) majChef(date, { rapportEnvoye: true });
