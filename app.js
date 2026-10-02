@@ -12,7 +12,7 @@
  * Numéro affiché sur l'écran de connexion et l'écran bureau (plus sur l'accueil des gars : version 48).
  * À augmenter à chaque dépôt de nouveaux fichiers sur GitHub : c'est le seul numéro à changer.
  */
-const VERSION_APPLI = '60';
+const VERSION_APPLI = '61';
 
 // ---------------------------------------------------------------------------
 // Petits outils
@@ -1521,14 +1521,27 @@ function groupesMateriaux(liste) {
   const frequents = parNom(liste.filter(x => x.frequent));
   return frequents.length ? [{ libelle: 'Fréquents', materiaux: frequents }, ...groupes] : groupes;
 }
-function optionsMateriaux(liste, choisi) {
-  let selectionne = false;        // un matériau fréquent est deux fois dans la liste : une seule option choisie
-  const option = x => {
-    const sel = !selectionne && x.materiau === choisi;
-    if (sel) selectionne = true;
-    return `<option ${sel ? 'selected' : ''}>${esc(x.materiau)}</option>`;
-  };
-  return groupesMateriaux(liste).map(g => `<optgroup label="${esc(g.libelle)}">${g.materiaux.map(option).join('')}</optgroup>`).join('');
+/**
+ * Version 61 : recherche d'un matériau par morceaux du nom. Accents et majuscules ignorés, point = virgule (0.10 = 0,10) ; chaque mot
+ * tapé doit se trouver quelque part dans le nom (« pvc 125 » → « PVC 125 CR8 3ML », « fonte 30 » → « GRILLE FONTE PLATE 30X30 »).
+ * Rien de tapé : les groupes habituels (Fréquents, puis les familles). Sinon : les correspondances, fréquents d'abord,
+ * par ordre alphabétique.
+ */
+const cleRecherche = t => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\./g, ',');
+function chercherMateriaux(liste, texte) {
+  const mots = cleRecherche(texte).split(/\s+/).filter(Boolean);
+  if (!mots.length) return groupesMateriaux(liste);
+  const trouves = liste.filter(x => { const n = cleRecherche(x.materiau); return mots.every(m => n.includes(m)); })
+    .sort((a, b) => (b.frequent ? 1 : 0) - (a.frequent ? 1 : 0) || triAlpha(a.materiau, b.materiau));
+  return trouves.length ? [{ libelle: `${trouves.length} matériau${trouves.length > 1 ? 'x' : ''}`, materiaux: trouves }] : [];
+}
+/** Liste des résultats sous le champ de recherche ; les matériaux déjà sur le chantier sont grisés. */
+function resultatsMateriaux(liste, texte, pris) {
+  const groupes = chercherMateriaux(liste, texte);
+  if (!groupes.length) return `<p class="discret aucun">Aucun matériau ne contient « ${esc(String(texte).trim())} ».</p>`;
+  return groupes.map(g => `<p class="groupe">${esc(g.libelle)}</p>${g.materiaux.map(x => pris.includes(x.materiau)
+    ? `<button type="button" class="resultat" disabled>${esc(x.materiau)} <span class="discret">— déjà sur ce chantier</span></button>`
+    : `<button type="button" class="resultat" data-choix="${esc(x.materiau)}">${esc(x.materiau)}</button>`).join('')}`).join('');
 }
 
 /**
@@ -1715,10 +1728,16 @@ ROUTES.rapport = async function (param) {
           <div class="ligne-tete"><span>${esc(m.materiau)} : ${esc(String(m.quantite))} ${esc(m.unite || '')}</span>${suppr}</div>
           <span class="erreur-champ">N'est plus dans la liste des matériaux : retire-le.</span>
         </div>`;
+        // Version 61 : un matériau nouveau se cherche en tapant un morceau de son nom ; la ligne ajoutée arrive vide.
         return `
-        <div class="materiau">
-          <select aria-label="Matériau" data-ch="${i}" data-mat="${k}" data-k="materiau">${optionsMateriaux(d.listeMateriaux, m.materiau)}</select>
-          ${quantite}${unite}${suppr}
+        <div class="ligne materiau-nouveau">
+          <div class="cherche">
+            <input type="search" autocomplete="off" enterkeyhint="search" aria-label="Matériau" placeholder="Matériau : tape un morceau du nom"
+              value="${esc(m.materiau || m.recherche || '')}" data-cherche="${i}-${k}"${m.materiau ? ' data-choisi="1"' : ''}>
+            ${suppr}
+          </div>
+          <div class="resultats" data-resultats="${i}-${k}" hidden></div>
+          <div class="materiau" style="grid-template-columns:1fr minmax(44px, auto)">${quantite}${unite}</div>
         </div>`; }).join('')}
       <button class="btn btn-ajout" type="button" data-ajout-mat="${i}">${ICONES.plus} Ajouter un matériau</button>
 
@@ -1792,6 +1811,43 @@ ROUTES.rapport = async function (param) {
       // On met à jour le nombre à la main : redessiner couperait le glissement en cours.
       el.closest('.ligne').querySelector('.valeur').textContent = `${el.value} %`;
     });
+    // Version 61 : recherche d'un matériau nouveau. Taper efface le choix précédent ; toucher un résultat le choisit ;
+    // en quittant le champ, un nom tapé en entier (au sens de la recherche) est retenu tel quel.
+    const choisirMateriau = (m, nom) => { m.materiau = nom; m.unite = unites[nom] || ''; delete m.recherche; };
+    $$('[data-cherche]').forEach(el => {
+      const [i, k] = el.dataset.cherche.split('-').map(Number);
+      const c = e.chantiers[i], m = c.materiaux[k];
+      const boite = $(`[data-resultats="${i}-${k}"]`);
+      const montrer = () => {
+        const pris = c.materiaux.filter((x, n) => n !== k && x.materiau).map(x => x.materiau);
+        boite.innerHTML = resultatsMateriaux(d.listeMateriaux, m.materiau ? '' : el.value, pris);
+        boite.hidden = false;
+        boite.querySelectorAll('[data-choix]').forEach(b => {
+          b.onmousedown = ev => ev.preventDefault();          // garder le champ actif jusqu'au choix
+          b.onclick = () => { choisirMateriau(m, b.dataset.choix); dessiner(); const q = $(`[data-ch="${i}"][data-mat="${k}"][data-k="quantite"]`); if (q) q.focus(); };
+        });
+      };
+      el.onfocus = () => { if (m.materiau) el.select(); montrer(); };
+      el.oninput = () => {
+        if (m.materiau) { m.materiau = ''; m.unite = ''; delete el.dataset.choisi; }
+        m.recherche = el.value;
+        const u = el.closest('.materiau-nouveau').querySelector('.unite-fixe'); if (u) u.textContent = '';
+        montrer();
+      };
+      // Un léger délai : sur certains téléphones, le champ perd la main avant que le toucher d'un résultat soit compté.
+      el.onblur = () => setTimeout(() => {
+        if (!el.isConnected) return;                           // écran redessiné entre-temps (résultat choisi)
+        boite.hidden = true;
+        if (m.materiau) return;
+        const cle = t => cleRecherche(t).replace(/\s+/g, ' ').trim();
+        const exact = d.listeMateriaux.find(x => cle(x.materiau) === cle(el.value));
+        if (exact && !c.materiaux.some((x, n) => n !== k && x.materiau === exact.materiau)) {
+          choisirMateriau(m, exact.materiau);                  // sur place, sans redessiner : le champ suivant garde la main
+          el.value = exact.materiau; el.dataset.choisi = '1';
+          const u = el.closest('.materiau-nouveau').querySelector('.unite-fixe'); if (u) u.textContent = m.unite;
+        }
+      }, 150);
+    });
     $$('[data-mat]').forEach(el => el.oninput = el.onchange = () => {
       const c = e.chantiers[+el.dataset.ch], m = c.materiaux[+el.dataset.mat];
       m[el.dataset.k] = el.value;
@@ -1819,12 +1875,10 @@ ROUTES.rapport = async function (param) {
       e.chantiers[+b.dataset.ajoutTache].avancement.push({ tache: '', pourcentage: 0, mode: 'POURCENTAGE' }); dessiner();
     });
     $$('[data-ajout-mat]').forEach(b => b.onclick = () => {
-      // Version 58 : le premier matériau de la liste qui n'est pas déjà sur ce chantier.
-      // Version 60 : dans l'ordre affiché, donc le premier fréquent s'il y en a.
-      const c = e.chantiers[+b.dataset.ajoutMat];
-      const ordre = groupesMateriaux(d.listeMateriaux).flatMap(g => g.materiaux);
-      const m = ordre.find(x => !c.materiaux.some(y => y.materiau === x.materiau)) || ordre[0] || { materiau: '', unite: '' };
-      c.materiaux.push({ materiau: m.materiau, quantite: '', unite: m.unite }); dessiner();
+      // Version 61 : la ligne arrive vide, le champ de recherche ouvert (Fréquents puis familles) ; plus de matériau imposé.
+      const i = +b.dataset.ajoutMat, c = e.chantiers[i];
+      c.materiaux.push({ materiau: '', quantite: '', unite: '' }); dessiner();
+      const champ = $(`[data-cherche="${i}-${c.materiaux.length - 1}"]`); if (champ) champ.focus();
     });
     $$('[data-photo]').forEach(input => input.onchange = async ev => {
       const f = ev.target.files[0]; if (!f) return;
@@ -1905,6 +1959,11 @@ ROUTES.rapport = async function (param) {
       // Version 58 : un matériau repris peut rester vide (rien utilisé ce jour-là) ; un nouveau, non ; pas de doublon.
       const inactif = c.materiaux.find(m => m.inactif);
       if (inactif) { e.ouvert = e.chantiers.indexOf(c); dessiner(); $('#erreur').textContent = `${c.libelle} : « ${inactif.materiau} » n'est plus dans la liste des matériaux : retire-le.`; return; }
+      // Version 61 : une ligne nouvelle sans matériau ni quantité est ignorée ; avec une quantité, il faut le matériau.
+      const aQte = m => String(m.quantite === undefined || m.quantite === null ? '' : m.quantite).trim() !== '';
+      c.materiaux = c.materiaux.filter(m => m.avant || m.materiau || aQte(m));
+      const sansNom = c.materiaux.find(m => !m.avant && !m.materiau);
+      if (sansNom) { e.ouvert = e.chantiers.indexOf(c); dessiner(); $('#erreur').textContent = `${c.libelle} : choisis le matériau de chaque ligne, ou retire-la.`; return; }
       const sansQte = c.materiaux.find(m => !m.avant && !(Number(String(m.quantite).replace(',', '.')) > 0));
       if (sansQte) { e.ouvert = e.chantiers.indexOf(c); dessiner(); $('#erreur').textContent = `${c.libelle} : indique la quantité de chaque nouveau matériau, ou retire-le.`; return; }
       const noms = c.materiaux.map(m => String(m.materiau).trim());
