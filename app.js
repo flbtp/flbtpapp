@@ -1697,10 +1697,10 @@ ROUTES.rapport = async function (param) {
             <span class="somme${valeurDuJour(q) === null ? ' vide' : ''}">${texteTotal(cumul, q)}</span>
           </div>`;
   const champQteMat = (i, k, m) => `<div class="qte"><input type="text" inputmode="decimal" aria-label="Quantité utilisée aujourd'hui" value="${esc(m.quantite === undefined || m.quantite === null ? '' : String(m.quantite).replace('.', ','))}" data-ch="${i}" data-mat="${k}" data-k="quantite"><span class="unite-fixe">${esc(m.unite || '')}</span></div>`;
-  // Ligne nouvelle (matériau choisi, tâche ajoutée en quantité) : même colonnes, « 0 / NOUVEAU » à la place du cumul.
+  // Ligne nouvelle (matériau choisi, tâche ajoutée en quantité) : même colonnes, étiquette « Nouveau » à la place du cumul.
   const ligneEqNouveau = (q, champ) => `
           <div class="eq">
-            <span class="deja" data-cumul="0"><b>0</b><small class="nouveau">Nouveau</small></span>
+            <span class="deja" data-cumul="0"><span class="tag-nouveau">Nouveau</span></span>
             <span class="op">+</span>${champ}<span class="op">=</span>
             <span class="somme${valeurDuJour(q) === null ? ' vide' : ''}">${texteTotal(0, q)}</span>
           </div>`;
