@@ -1507,25 +1507,23 @@ ROUTES.envoye = function () {
 // ---------------------------------------------------------------------------
 
 /**
- * Les matériaux sont classés par famille : la liste en compte plus de cent. Version 60 : les matériaux fréquents
- * (FREQUENT = OUI au référentiel) en tête, dans un groupe « Fréquents », puis les familles ; familles et matériaux par
- * ordre alphabétique (nombres dans l'ordre naturel : 2/4, 4/6, 6/10, 10/14 ; accents et majuscules ignorés).
- * Un matériau fréquent figure aussi dans sa famille.
+ * Liste des matériaux (plus de cent). Version 60 : les matériaux fréquents (FREQUENT = OUI au référentiel) en tête,
+ * dans un groupe « Fréquents ». Version 62 : plus de familles, le reste est « Tous les matériaux », par ordre alphabétique
+ * (nombres dans l'ordre naturel : 2/4, 4/6, 6/10, 10/14 ; accents et majuscules ignorés). Un fréquent figure aussi dans « Tous ».
  */
 const triAlpha = (a, b) => String(a).localeCompare(String(b), 'fr', { numeric: true, sensitivity: 'base' });
 function groupesMateriaux(liste) {
+  // Version 62 : plus de familles ; « Fréquents » en tête, puis tous les matériaux par ordre alphabétique.
   const parNom = l => [...l].sort((a, b) => triAlpha(a.materiau, b.materiau));
-  const familles = {};
-  liste.forEach(x => { (familles[x.categorie || 'AUTRES'] = familles[x.categorie || 'AUTRES'] || []).push(x); });
-  const groupes = Object.keys(familles).sort(triAlpha).map(f => ({ libelle: f, materiaux: parNom(familles[f]) }));
+  const tous = { libelle: 'Tous les matériaux', materiaux: parNom(liste) };
   const frequents = parNom(liste.filter(x => x.frequent));
-  return frequents.length ? [{ libelle: 'Fréquents', materiaux: frequents }, ...groupes] : groupes;
+  return frequents.length ? [{ libelle: 'Fréquents', materiaux: frequents }, tous] : [tous];
 }
 /**
  * Version 61 : recherche d'un matériau par morceaux du nom. Accents et majuscules ignorés, point = virgule (0.10 = 0,10) ; chaque mot
  * tapé doit se trouver quelque part dans le nom (« pvc 125 » → « PVC 125 CR8 3ML », « fonte 30 » → « GRILLE FONTE PLATE 30X30 »).
- * Rien de tapé : les groupes habituels (Fréquents, puis les familles). Sinon : les correspondances, fréquents d'abord,
- * par ordre alphabétique.
+ * Rien de tapé : « Fréquents » puis « Tous les matériaux » (version 62 : plus de familles). Sinon : les correspondances,
+ * fréquents d'abord, par ordre alphabétique.
  */
 const cleRecherche = t => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\./g, ',');
 function chercherMateriaux(liste, texte) {
