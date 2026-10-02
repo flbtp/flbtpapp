@@ -1660,7 +1660,10 @@ ROUTES.rapport = async function (param) {
     // Chaque chantier a son avancement, ses matériaux, ses bons de livraison et ses remarques.
     chantiers: d.chantiers.map(c => ({
       libelle: c.libelle, client: c.client, commune: c.commune, remarques: c.remarques || '', hors: !!c.hors, declarePar: c.declarePar || [],
-      avancement: c.avancement.map(x => ({ ...x })), materiaux: c.materiaux.map(x => ({ ...x })),
+      // Version 62 : à l'ouverture, les tâches en % d'abord puis celles en quantité (ordre du serveur gardé dans chaque groupe) ;
+      // pendant la saisie rien ne bouge, une tâche ajoutée arrive en bas.
+      avancement: [...c.avancement.filter(x => x.mode !== 'QUANTITE'), ...c.avancement.filter(x => x.mode === 'QUANTITE')].map(x => ({ ...x })),
+      materiaux: c.materiaux.map(x => ({ ...x })),
       bl: c.bl, photos: [],
     })),
     ouvert: 0,
@@ -1734,7 +1737,8 @@ ROUTES.rapport = async function (param) {
         </details>`;
       })()}
       ${(() => {
-        let enteteAuj = false;                      // l'intitulé « Déjà · Aujourd'hui · Total » une seule fois, au-dessus de la première tâche en quantité
+        // Intitulé « Déjà · Aujourd'hui · Total » au début de chaque groupe de tâches en quantité qui se suivent (répété après une tâche en %).
+        let enteteAuj = false;                      // vrai si la dernière ligne affichée est une tâche en quantité
         return c.avancement.map((t, k) => {
         // Version 57 : une tâche connue (déclarée un jour d'avant) garde son nom et son mode.
         // Version 62 : connue en quantité → nom, cumul « déjà », quantité du jour à droite (unité fixe) ; en % → curseur deux couleurs.
@@ -1769,6 +1773,7 @@ ROUTES.rapport = async function (param) {
           ${ligneEqNouveau(t.quantite, `<div class="qte">${champ}<span class="unite-fixe">${esc(t.unite || '')}</span></div>`)}
         </div>`;
         }
+        enteteAuj = false;                          // une tâche en % coupe le groupe : la suivante en quantité reprend l'intitulé
         const v = Number(t.pourcentage) || 0, avant = connue ? Number(t.avant.pourcentage) || 0 : 0;
         return `
         <div class="ligne tache-pct${connue ? '' : ' tache-nouvelle'}${v !== avant ? ' saisie' : ''}" data-avant="${avant}" data-connue="${connue ? 1 : ''}">
