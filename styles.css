@@ -82,7 +82,7 @@ p { margin: 0; }
 label, .etiquette { font-size: 15px; font-weight: 600; display: block; }
 .sous { font-size: 14px; color: var(--gris); font-weight: 500; }
 .champ { display: flex; flex-direction: column; gap: 6px; }
-input[type=text], input[type=time], input[type=date], input[type=number], input[type=password], select, textarea {
+input[type=text], input[type=search], input[type=time], input[type=date], input[type=number], input[type=password], select, textarea {
   width: 100%; min-height: 52px; border: 2px solid var(--trait); border-radius: 10px; padding: 0 12px;
   font: inherit; font-size: 17px; background: var(--surface); color: var(--encre);
 }
@@ -150,17 +150,68 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .ligne-tete { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .ligne-tete span:first-child { font-weight: 600; }
 .aide-avancement { margin: -4px 0 8px; }
-.tache-finie { background: var(--vert-pale); }
-.tache-finie .ligne-tete span:first-child { color: var(--vert); }
 .btn-lien { border: none; background: none; color: var(--marque); font-weight: 600; font-size: 15px; cursor: pointer; padding: 6px 0; }
-.materiau { display: grid; grid-template-columns: 1.3fr 0.9fr minmax(44px, auto) 44px; gap: 8px; align-items: center; }
-/* Version 58 : unité du référentiel, affichée, jamais choisie. */
-.unite-fixe { font-weight: 600; color: var(--gris); text-align: center; white-space: nowrap; }
 .suppr { width: 44px; height: 44px; border: none; border-radius: 8px; background: var(--fond); color: var(--rouge); font-size: 22px; cursor: pointer; }
 /* Version 61 : matériau nouveau cherché en tapant un morceau du nom, résultats sous le champ. */
-.materiau-nouveau .cherche { display: grid; grid-template-columns: 1fr 44px; gap: 8px; align-items: center; margin-bottom: 8px; }
+.rapport-chantier .cherche { display: grid; grid-template-columns: 1fr 44px; gap: 8px; align-items: center; }
 .materiau-nouveau .cherche input[data-choisi] { font-weight: 600; }
-.resultats { border: 1px solid var(--trait); border-radius: 8px; background: var(--surface); max-height: 280px; overflow-y: auto; margin: -2px 0 8px; }
+/* Version 62 : le champ de recherche prend le style des autres champs (en v61 il restait au style du navigateur). */
+input[type=search] { -webkit-appearance: none; appearance: none; }
+.resultats { border: 1px solid var(--trait); border-radius: 8px; background: var(--surface); max-height: 280px; overflow-y: auto; }
+/*
+ * Version 62 : tâches et matériaux du rapport. Cumul « déjà » en pastille sous le nom, quantité du jour à droite
+ * (« + » devant, unité dedans), intitulé « Aujourd'hui » une seule fois au-dessus ; liseré jaune sur ce qui est rempli.
+ */
+.rapport-chantier .ligne { border-left: 5px solid transparent; padding: 10px 10px 10px 12px; }
+.rapport-chantier .ligne.saisie { border-left-color: var(--jaune); background: #FBF6E8; }
+.rapport-chantier .nom { font-weight: 600; line-height: 1.25; overflow-wrap: anywhere; }
+.entete-auj { display: grid; grid-template-columns: minmax(0, 1fr) 116px; gap: 10px; padding: 0 10px 0 17px; margin-bottom: -6px; }
+.entete-auj span:last-child { font-size: 12px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--gris); text-align: center; }
+.cumul, .qte-ligne { display: grid; grid-template-columns: minmax(0, 1fr) 116px; gap: 10px; align-items: center; }
+.cumul .g { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.info { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; }
+.info .date { font-size: 13px; color: var(--gris); }
+.pastille-cumul { display: inline-flex; align-items: baseline; gap: 6px; padding: 3px 9px; border-radius: 6px; background: var(--surface); border: 1px solid var(--trait); font-size: 14px; color: var(--gris); white-space: nowrap; }
+.pastille-cumul b { font-size: 17px; color: var(--encre); }
+.ligne.saisie .pastille-cumul { background: var(--jaune-pale); border-color: #ECD28F; }
+.qte { position: relative; display: flex; align-items: center; min-width: 0; }
+.qte input[type=text] { text-align: right; padding: 0 40px 0 24px; font-weight: 700; font-size: 19px; }
+.qte .plus { position: absolute; left: 11px; font-weight: 700; color: var(--gris); pointer-events: none; }
+/* Version 58 : unité du référentiel, affichée, jamais choisie (version 62 : dans le champ). */
+.unite-fixe { font-weight: 600; color: var(--gris); white-space: nowrap; }
+.qte .unite-fixe { position: absolute; right: 10px; font-size: 15px; pointer-events: none; }
+.tag-nouveau { justify-self: start; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; background: var(--encre); color: #fff; border-radius: 5px; padding: 2px 7px; }
+/* Tâche nouvelle en quantité : quantité et liste d'unités côte à côte. */
+.tache-nouvelle .qte-ligne { grid-template-columns: minmax(0, 1fr); gap: 6px; }
+.qte-unite { display: grid; grid-template-columns: minmax(0, 1fr) 78px; gap: 8px; }
+.qte-unite .qte input[type=text] { padding-right: 10px; }
+.qte-unite select { padding: 0 6px; }
+/* Tâche en % : état d'avant (encre), gain du jour (jaune) ou recul (rouge pâle). */
+.pct-tete { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.pct-val { white-space: nowrap; }
+.pct-val .valeur { font-family: var(--titre); font-size: 26px; line-height: 1; }
+.pct-val .ecart { font-size: 14px; font-weight: 700; color: var(--vert); margin-left: 4px; }
+.pct-val .ecart:empty { display: none; }
+.pct-val .ecart.moins { color: var(--rouge); }
+input[type=range].av { -webkit-appearance: none; appearance: none; width: 100%; height: 32px; min-height: 32px; background: transparent; margin: 0; --piste: var(--creux); }
+input[type=range].av::-webkit-slider-runnable-track { height: 10px; border-radius: 5px; background: var(--piste); }
+input[type=range].av::-moz-range-track { height: 10px; border-radius: 5px; background: var(--piste); }
+input[type=range].av::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 28px; height: 28px; border-radius: 50%; background: var(--encre); border: 3px solid #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, .35); margin-top: -9px; }
+input[type=range].av::-moz-range-thumb { width: 24px; height: 24px; border-radius: 50%; background: var(--encre); border: 3px solid #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, .35); }
+input[type=range].av:disabled { opacity: .5; }
+.legende { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 13px; color: var(--gris); }
+.legende i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: -1px; }
+.legende .l-avant { background: var(--encre); }
+.legende .l-plus { background: var(--jaune); }
+.legende .l-moins { background: var(--rouge-pale); border: 1px solid var(--rouge); }
+/* Tâches terminées regroupées sur une ligne repliable. */
+.taches-finies { background: var(--vert-pale); border-radius: 10px; padding: 10px 12px; }
+.taches-finies summary { cursor: pointer; color: var(--vert); font-weight: 600; list-style: none; display: flex; justify-content: space-between; align-items: center; min-height: 28px; }
+.taches-finies summary::-webkit-details-marker { display: none; }
+.taches-finies summary::after { content: '▾'; }
+.taches-finies[open] summary::after { content: '▴'; }
+.tache-finie { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding-top: 8px; margin-top: 8px; border-top: 1px solid #C9E2CD; font-size: 15px; }
+.tache-finie .btn-lien { color: var(--vert); }
 .resultats .groupe { margin: 0; padding: 6px 12px 2px; font-size: 13px; font-weight: 600; color: var(--gris); text-transform: uppercase; letter-spacing: .03em; background: var(--creux); }
 .resultats .resultat { display: block; width: 100%; min-height: 44px; padding: 10px 12px; border: none; border-top: 1px solid var(--creux); background: none; text-align: left; font: inherit; color: var(--encre); cursor: pointer; }
 .resultats .resultat:disabled { color: var(--gris); cursor: default; }
