@@ -12,7 +12,7 @@
  * Numéro affiché sur l'écran de connexion et l'écran bureau (plus sur l'accueil des gars : version 48).
  * À augmenter à chaque dépôt de nouveaux fichiers sur GitHub : c'est le seul numéro à changer.
  */
-const VERSION_APPLI = '58';
+const VERSION_APPLI = '59';
 
 // ---------------------------------------------------------------------------
 // Petits outils
@@ -2632,6 +2632,21 @@ function htmlCompteRenduJour(c, avecDate) {
   </div>`;
 }
 
+/** Version 59 : le bloc rentabilité du compte rendu de l'envoi (fichiers créés, lignes écrites, matériaux sans prix, échecs). */
+function htmlCompteRenduRenta(x) {
+  if (!x) return '';
+  if (!x.actif) return `<p class="discret">Rentabilité : ${esc(x.message || 'inactive')}</p>`;
+  const n = (v, mot) => `${v} ${mot}${v > 1 ? 's' : ''}`;
+  const rien = !x.journees && !x.materiaux && !x.bl && !x.avancement && !(x.fichiersCrees || []).length;
+  const echecs = x.echecs || [], sansPrix = x.sansPrix || [];
+  return `<div class="cr-renta">
+    <p><b>Rentabilité</b> : ${rien ? 'rien à écrire' : `${n(x.journees, 'ligne')} d'heures, ${n(x.materiaux, 'matériau')}, ${n(x.bl, 'BL')}, ${n(x.avancement, 'avancement')} écrits dans les fichiers de rentabilité`}${x.reste ? ` — ${n(x.reste, 'journée')} en attente du prochain envoi` : ''}.</p>
+    ${(x.fichiersCrees || []).length ? `<p><b>Fichiers créés</b></p><ul class="points">${x.fichiersCrees.map(f => `<li>${esc(f)}</li>`).join('')}</ul>` : ''}
+    ${sansPrix.length ? `<p><b>Matériaux sans prix</b> (à compléter dans PRIX, et dans le fichier du chantier)</p><ul class="points">${sansPrix.map(m => `<li>${esc(m)}</li>`).join('')}</ul>` : ''}
+    ${echecs.length ? `<p class="rouge"><b>Rentabilité non écrite</b> (repartira au prochain envoi)</p><ul class="points">${echecs.map(e => `<li><b>${esc(e.chantier)}</b> : ${esc(e.erreur)}</li>`).join('')}</ul>` : ''}
+  </div>`;
+}
+
 /** Les jours d'une étape de la chaîne de paie (« complets, à cocher » ou « dans l'envoi »), toutes dates confondues. */
 ROUTES.paie = async function (etape) {
   const toujoursIci = ecranCourant();
@@ -2651,6 +2666,7 @@ ROUTES.paie = async function (etape) {
       <p>${r.ecrites} journée${r.ecrites > 1 ? 's' : ''} et ${r.absences || 0} absence${(r.absences || 0) > 1 ? 's' : ''} écrites dans le Suivi RH.</p>
       ${(r.jours || []).map(c => htmlCompteRenduJour(c, true)).join('')}
       ${non.length ? `<p class="rouge"><b>Jours non envoyés (point à corriger)</b></p><ul class="points">${non.map(x => `<li><b>${esc(dateLongue(x.date))}</b> : ${esc(x.texte)}</li>`).join('')}</ul>` : ''}
+      ${htmlCompteRenduRenta(r.renta)}
     </section>`;
   };
   const dessiner = () => {
