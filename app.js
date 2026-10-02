@@ -1669,22 +1669,26 @@ ROUTES.rapport = async function (param) {
   const moiRapport = (stock.lire('session') || {}).personne;
   const nouveauChef = !auNomDe && d.bloc && (d.bloc.deFait || (d.bloc.remplacant && d.bloc.remplacant === moiRapport));
 
-  // Version 62 : présentation des tâches et matériaux (cumul « déjà », saisie du jour à droite, curseur deux couleurs).
+  // Version 62 : présentation des tâches et matériaux (ligne « déjà + aujourd'hui = total », curseur deux couleurs).
   const nombre = x => String(Math.round(Number(x) * 1000) / 1000).replace('.', ',');
   const valeurDuJour = q => { const t = String(q ?? '').trim(); if (!t) return null; const n = Number(t.replace(',', '.')); return Number.isFinite(n) ? n : null; };
   const aSaisi = q => String(q ?? '').trim() !== '';
   const estFinie = t => !!t.avant && t.avant.mode !== 'QUANTITE' && Number(t.avant.pourcentage) >= 100 && !t.duJour && !t.rouverte;
-  const enteteAujourdhui = () => '<div class="entete-auj"><span></span><span>Aujourd\'hui</span></div>';
-  // « déjà 36 ml » ; avec une quantité du jour lisible : « total 41 ml ».
-  const texteCumul = (cumul, unite, q) => {
-    const n = valeurDuJour(q);
-    return n === null ? `déjà <b>${esc(nombre(cumul))} ${esc(unite || '')}</b>` : `total <b>${esc(nombre(Number(cumul) + n))} ${esc(unite || '')}</b>`;
-  };
-  const infoCumul = (cumul, unite, dateAvant, q) => `<span class="info"><span class="pastille-cumul" data-cumul="${esc(String(cumul))}" data-unite="${esc(unite || '')}">${texteCumul(cumul, unite, q)}</span><span class="date">le ${dateCourte(dateAvant)}</span></span>`;
-  const champQteMat = (i, k, m) => `<div class="qte"><span class="plus">+</span><input type="text" inputmode="decimal" aria-label="Quantité utilisée aujourd'hui" value="${esc(m.quantite === undefined || m.quantite === null ? '' : String(m.quantite))}" data-ch="${i}" data-mat="${k}" data-k="quantite"><span class="unite-fixe">${esc(m.unite || '')}</span></div>`;
+  // Intitulé des colonnes, une fois au-dessus de la liste.
+  const enteteAujourdhui = () => '<div class="eq-tete"><span>Déjà</span><span></span><span>Aujourd\'hui</span><span></span><span>Total</span></div>';
+  // Total = cumul d'avant + quantité du jour lisible ; « — » sans saisie. Nombres sans unité : l'unité est dans le champ du jour.
+  const texteTotal = (cumul, q) => { const n = valeurDuJour(q); return n === null ? '—' : nombre(Number(cumul) + n); };
+  // « 26,75 au 01/10 + [ 20 m3 ] = 46,75 » : la date reste attachée au cumul d'avant.
+  const ligneEq = (cumul, dateAvant, q, champ) => `
+          <div class="eq">
+            <span class="deja" data-cumul="${esc(String(cumul))}"><b>${esc(nombre(cumul))}</b><small>au ${dateCourte(dateAvant)}</small></span>
+            <span class="op">+</span>${champ}<span class="op">=</span>
+            <span class="somme${valeurDuJour(q) === null ? ' vide' : ''}">${texteTotal(cumul, q)}</span>
+          </div>`;
+  const champQteMat = (i, k, m) => `<div class="qte"><input type="text" inputmode="decimal" aria-label="Quantité utilisée aujourd'hui" value="${esc(m.quantite === undefined || m.quantite === null ? '' : String(m.quantite))}" data-ch="${i}" data-mat="${k}" data-k="quantite"><span class="unite-fixe">${esc(m.unite || '')}</span></div>`;
   const ligneQteNouveau = (i, k, m) => `<div class="qte-ligne"><span class="tag-nouveau">Nouveau</span>${champQteMat(i, k, m)}</div>`;
   const pisteCurseur = (v, avant) => {
-    const bas = Math.min(v, avant), haut = Math.max(v, avant), milieu = v >= avant ? 'var(--jaune)' : 'var(--rouge-pale)';
+    const bas = Math.min(v, avant), haut = Math.max(v, avant), milieu = v >= avant ? 'var(--jaune)' : 'var(--rouge-moyen)';
     return `linear-gradient(90deg, var(--encre) 0 ${bas}%, ${milieu} ${bas}% ${haut}%, var(--creux) ${haut}% 100%)`;
   };
   const texteEcart = (v, avant, connue) => !connue || v === avant ? '' : `${v > avant ? '+' : '−'}${Math.abs(v - avant)} %`;
@@ -1730,17 +1734,15 @@ ROUTES.rapport = async function (param) {
             const tete = enteteAuj ? '' : enteteAujourdhui(); enteteAuj = true;
             return `${tete}
         <div class="ligne ligne-cumul${aSaisi(t.quantite) ? ' saisie' : ''}">
-          <div class="cumul">
-            <div class="g"><span class="nom">${esc(t.tache)}</span>${infoCumul(t.avant.cumul, t.unite || t.avant.unite, t.avant.date, t.quantite)}</div>
-            <div class="qte"><span class="plus">+</span>${champ}<span class="unite-fixe">${esc(t.unite || t.avant.unite || '')}</span></div>
-          </div>
+          <span class="nom">${esc(t.tache)}</span>${ligneEq(t.avant.cumul, t.avant.date, t.quantite,
+            `<div class="qte">${champ}<span class="unite-fixe">${esc(t.unite || t.avant.unite || '')}</span></div>`)}
         </div>`;
           }
           return `
         <div class="ligne tache-nouvelle${aSaisi(t.quantite) ? ' saisie' : ''}">
           ${nouvelle}
           <div class="qte-ligne"><span class="sous">Fait aujourd'hui</span>
-            <div class="qte-unite"><div class="qte"><span class="plus">+</span>${champ}</div>
+            <div class="qte-unite"><div class="qte">${champ}</div>
               <select aria-label="Unité" data-ch="${i}" data-av="${k}" data-k="unite">${['m2', 'ml', 'm3', 't', 'un'].map(u => `<option ${u === (t.unite || 'm2') ? 'selected' : ''}>${u}</option>`).join('')}</select></div>
           </div>
         </div>`;
@@ -1761,14 +1763,11 @@ ROUTES.rapport = async function (param) {
       ${c.materiaux.some(m => m.avant) ? enteteAujourdhui() : ''}
       ${c.materiaux.map((m, k) => {
         // Version 58 : un matériau déjà déclaré sur ce chantier garde son nom et son unité (celle du référentiel), sans « × ».
-        // Version 62 : cumul « déjà 36 ml » en évidence, quantité du jour à droite avec l'unité dedans.
+        // Version 62 : « déjà + aujourd'hui = total » sur la ligne, l'unité dans le champ du jour.
         const suppr = `<button class="suppr" type="button" data-suppr-mat="${i}-${k}" aria-label="Retirer le matériau">×</button>`;
         if (m.avant) return `
         <div class="ligne ligne-cumul materiau-repris${aSaisi(m.quantite) ? ' saisie' : ''}">
-          <div class="cumul">
-            <div class="g"><span class="nom">${esc(m.materiau)}</span>${infoCumul(m.avant.cumul, m.unite, m.avant.date, m.quantite)}</div>
-            ${champQteMat(i, k, m)}
-          </div>
+          <span class="nom">${esc(m.materiau)}</span>${ligneEq(m.avant.cumul, m.avant.date, m.quantite, champQteMat(i, k, m))}
         </div>`;
         if (m.inactif) return `
         <div class="ligne">
@@ -1846,11 +1845,11 @@ ROUTES.rapport = async function (param) {
       ${d.verrouille ? '' : `<div class="pied"><button class="btn btn-principal" type="button" id="envoyer">${envoye ? 'Renvoyer le rapport' : 'Envoyer le rapport'}</button>
         ${auNomDe && (d.rapport || d.chantiers.some(c => c.avancement.some(t => t.duJour) || c.materiaux.some(m => m.duJour) || c.remarques)) ? '<button class="option" type="button" id="effacerRapport">Effacer le rapport</button>' : ''}</div>`}`;
 
-    // Version 62 : liseré « saisi » et cumul « déjà » → « total » mis à jour pendant la frappe, sans redessiner.
+    // Version 62 : liseré « saisi » et total (déjà + aujourd'hui) mis à jour pendant la frappe, sans redessiner.
     const majCumul = (ligne, q) => {
       ligne.classList.toggle('saisie', aSaisi(q));
-      const p = ligne.querySelector('.pastille-cumul');
-      if (p) p.innerHTML = texteCumul(p.dataset.cumul, p.dataset.unite, q);
+      const deja = ligne.querySelector('.deja'), total = ligne.querySelector('.somme');
+      if (deja && total) { total.textContent = texteTotal(deja.dataset.cumul, q); total.classList.toggle('vide', valeurDuJour(q) === null); }
     };
     const brancherMat = el => el.oninput = el.onchange = () => {
       const c = e.chantiers[+el.dataset.ch], m = c.materiaux[+el.dataset.mat];

@@ -15,6 +15,7 @@
   --vert-pale: #E4F2E6;
   --rouge: #A33A2B;
   --rouge-pale: #F6E1DD;
+  --rouge-moyen: #D9745F;    /* version 62 : recul du jour sur le curseur d'une tâche, visible sur le gris de la piste */
   --titre: 'Barlow Condensed', 'Arial Narrow', sans-serif;
   --texte: 'Barlow', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   --rayon: 12px;
@@ -159,24 +160,28 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 input[type=search] { -webkit-appearance: none; appearance: none; }
 .resultats { border: 1px solid var(--trait); border-radius: 8px; background: var(--surface); max-height: 280px; overflow-y: auto; }
 /*
- * Version 62 : tâches et matériaux du rapport. Cumul « déjà » en pastille sous le nom, quantité du jour à droite
- * (« + » devant, unité dedans), intitulé « Aujourd'hui » une seule fois au-dessus ; liseré jaune sur ce qui est rempli.
+ * Version 62 : tâches et matériaux du rapport. Sous le nom, « déjà + aujourd'hui = total » (unité dans le champ du jour),
+ * intitulé « Déjà · Aujourd'hui · Total » une seule fois au-dessus ; liseré jaune sur ce qui est rempli.
  */
 .rapport-chantier .ligne { border-left: 5px solid transparent; padding: 10px 10px 10px 12px; }
 .rapport-chantier .ligne.saisie { border-left-color: var(--jaune); background: #FBF6E8; }
 .rapport-chantier .nom { font-weight: 600; line-height: 1.25; overflow-wrap: anywhere; }
-.entete-auj { display: grid; grid-template-columns: minmax(0, 1fr) 116px; gap: 10px; padding: 0 10px 0 17px; margin-bottom: -6px; }
-.entete-auj span:last-child { font-size: 12px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--gris); text-align: center; }
-.cumul, .qte-ligne { display: grid; grid-template-columns: minmax(0, 1fr) 116px; gap: 10px; align-items: center; }
-.cumul .g { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
-.info { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; }
-.info .date { font-size: 13px; color: var(--gris); }
-.pastille-cumul { display: inline-flex; align-items: baseline; gap: 6px; padding: 3px 9px; border-radius: 6px; background: var(--surface); border: 1px solid var(--trait); font-size: 14px; color: var(--gris); white-space: nowrap; }
-.pastille-cumul b { font-size: 17px; color: var(--encre); }
-.ligne.saisie .pastille-cumul { background: var(--jaune-pale); border-color: #ECD28F; }
+.qte-ligne { display: grid; grid-template-columns: minmax(0, 1fr) 116px; gap: 10px; align-items: center; }
+/* Ligne à cumul : « déjà + aujourd'hui = total » en colonnes alignées d'une ligne à l'autre, largeur limitée (écran large). */
+.eq, .eq-tete { display: grid; grid-template-columns: minmax(0, 1fr) 10px 96px 10px minmax(0, 1fr); gap: 6px; align-items: center; max-width: 400px; }
+.eq-tete { padding: 0 10px 0 17px; margin-bottom: -6px; max-width: 427px; }   /* 400 + marges de la ligne (12 + liseré 5, 10) */
+.eq-tete span { font-size: 12px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--gris); }
+.eq-tete span:nth-child(3) { text-align: center; }
+.eq-tete span:nth-child(5), .eq .somme { text-align: right; }
+.eq .deja { display: flex; flex-direction: column; line-height: 1.15; min-width: 0; }
+.eq .deja b { font-size: 18px; }
+.eq .deja small { font-size: 13px; color: var(--gris); }
+.eq .op { text-align: center; font-weight: 700; color: var(--gris); }
+.eq .somme { font-weight: 700; font-size: 18px; white-space: nowrap; }
+.eq .somme.vide { color: #B4AFA4; font-weight: 600; }
+.ligne.saisie .eq .somme { color: var(--vert); }
 .qte { position: relative; display: flex; align-items: center; min-width: 0; }
-.qte input[type=text] { text-align: right; padding: 0 40px 0 24px; font-weight: 700; font-size: 19px; }
-.qte .plus { position: absolute; left: 11px; font-weight: 700; color: var(--gris); pointer-events: none; }
+.qte input[type=text] { text-align: right; padding: 0 38px 0 10px; font-weight: 700; font-size: 19px; }
 /* Version 58 : unité du référentiel, affichée, jamais choisie (version 62 : dans le champ). */
 .unite-fixe { font-weight: 600; color: var(--gris); white-space: nowrap; }
 .qte .unite-fixe { position: absolute; right: 10px; font-size: 15px; pointer-events: none; }
@@ -186,7 +191,7 @@ input[type=search] { -webkit-appearance: none; appearance: none; }
 .qte-unite { display: grid; grid-template-columns: minmax(0, 1fr) 78px; gap: 8px; }
 .qte-unite .qte input[type=text] { padding-right: 10px; }
 .qte-unite select { padding: 0 6px; }
-/* Tâche en % : état d'avant (encre), gain du jour (jaune) ou recul (rouge pâle). */
+/* Tâche en % : état d'avant (encre), gain du jour (jaune) ou recul (rouge moyen). */
 .pct-tete { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .pct-val { white-space: nowrap; }
 .pct-val .valeur { font-family: var(--titre); font-size: 26px; line-height: 1; }
@@ -203,7 +208,7 @@ input[type=range].av:disabled { opacity: .5; }
 .legende i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: -1px; }
 .legende .l-avant { background: var(--encre); }
 .legende .l-plus { background: var(--jaune); }
-.legende .l-moins { background: var(--rouge-pale); border: 1px solid var(--rouge); }
+.legende .l-moins { background: var(--rouge-moyen); }
 /* Tâches terminées regroupées sur une ligne repliable. */
 .taches-finies { background: var(--vert-pale); border-radius: 10px; padding: 10px 12px; }
 .taches-finies summary { cursor: pointer; color: var(--vert); font-weight: 600; list-style: none; display: flex; justify-content: space-between; align-items: center; min-height: 28px; }
