@@ -12,7 +12,7 @@
  * Numéro affiché sur l'écran de connexion et l'écran bureau (plus sur l'accueil des gars : version 48).
  * À augmenter à chaque dépôt de nouveaux fichiers sur GitHub : c'est le seul numéro à changer.
  */
-const VERSION_APPLI = '62';
+const VERSION_APPLI = '63';
 
 // ---------------------------------------------------------------------------
 // Petits outils
@@ -792,15 +792,15 @@ ROUTES.jour = async function (date) {
 
 let photoBlPrise = null;                   // photo tout juste prise depuis l'accueil, en attente de son chantier
 
-/** Les chantiers proposés pour un BL : groupe par groupe (les siens, ceux du jour, les récents). */
-function optionsChantiersBl(chantiers, actuel) {
-  // Version 55 : « Autres chantiers » (écran « BL récents » du bureau) et « Chantier actuel » s'il n'est dans aucun groupe.
-  const groupes = [['actuel', 'Chantier actuel'], ['miens', 'Mes chantiers du jour'], ['jour', 'Autres chantiers du jour'], ['recents', 'Chantiers récents'], ['jourBureau', 'Chantiers du jour'], ['tous', 'Autres chantiers']];
-  const liste = actuel && !chantiers.some(c => c.libelle === actuel) ? [{ libelle: actuel, groupe: 'actuel' }, ...chantiers] : chantiers;
-  return groupes.map(([g, titre]) => {
-    const l = liste.filter(c => c.groupe === g);
-    return l.length ? `<optgroup label="${esc(titre)}">${l.map(c => `<option value="${esc(c.libelle)}" ${c.libelle === actuel ? 'selected' : ''}>${esc(nomCourt(c.libelle))}</option>`).join('')}</optgroup>` : '';
-  }).join('');
+/**
+ * Les chantiers proposés pour un BL : groupe par groupe (les siens, ceux du jour, les récents).
+ * Version 55 : « Autres chantiers » (écran « BL récents » du bureau). Version 63 : groupes de la recherche (champChoix),
+ * plus de liste déroulante ; le chantier actuel est le texte du champ.
+ */
+const GROUPES_BL = [['miens', 'Mes chantiers du jour'], ['jour', 'Autres chantiers du jour'], ['recents', 'Chantiers récents'], ['jourBureau', 'Chantiers du jour'], ['tous', 'Autres chantiers']];
+function groupesChantiersBl(chantiers) {
+  return GROUPES_BL.map(([g, titre]) => ({ titre, items: chantiers.filter(c => c.groupe === g)
+    .map(c => ({ valeur: c.libelle, libelle: nomCourt(c.libelle), cle: c.libelle })) }));
 }
 
 /**
@@ -840,7 +840,7 @@ function chantierAffiche(b) {
   const e = etatsDeplacement()[b.id];
   return e && e.etat !== 'echec' ? e.chantier : b.chantier;
 }
-/** Liste « Chantier de ce BL », bouton « Ranger ici » (caché tant que rien n'a changé) et état du rangement. */
+/** Champ « Chantier de ce BL » (recherche, version 63), bouton « Ranger ici » (caché tant que rien n'a changé) et état du rangement. */
 function champDeplacementBl(b, k, chantiers, modifiable) {
   const e = etatsDeplacement()[b.id];
   const actuel = chantierAffiche(b);
@@ -850,17 +850,24 @@ function champDeplacementBl(b, k, chantiers, modifiable) {
     ok: Date.now() - e.quand < 10 * 60000 ? `<span class="bl-etat ok">Rangé ✓</span>` : '',
     echec: `<span class="bl-etat echec">Échec : ${esc(e.erreur || '')}</span>`,
   }[e.etat];
-  return `<select data-bl-deplacer="${k}" aria-label="Chantier de ce BL" ${modifiable && !(e && e.etat === 'encours') ? '' : 'disabled'}>${optionsChantiersBl(chantiers, actuel)}</select>
+  return `${champChoix(`data-bl-deplacer="${k}"`, { valeur: actuel, affiche: nomCourt(actuel), label: 'Chantier de ce BL',
+      placeholder: 'Tape un chantier', desactive: !(modifiable && !(e && e.etat === 'encours')) })}
     <button class="btn btn-sombre btn-petit" type="button" data-bl-ranger="${k}" hidden>Ranger ici</button>
     ${modifiable ? etat : '<span class="discret">Jour bouclé</span>'}`;
 }
-/** Branche les listes et boutons de champDeplacementBl ; `bls` : les BL dans l'ordre des indices k. */
-function brancherDeplacementBl(bls) {
-  $$('[data-bl-deplacer]').forEach(sel => {
-    const k = +sel.dataset.blDeplacer;
+/**
+ * Branche les champs et boutons de champDeplacementBl ; `bls` : les BL dans l'ordre des indices k ; `chantiers` : ceux
+ * proposés (avec leur groupe).
+ */
+function brancherDeplacementBl(bls, chantiers) {
+  $$('[data-bl-deplacer]').forEach(champ => {
+    const k = +champ.dataset.blDeplacer;
     const bouton = $(`[data-bl-ranger="${k}"]`);
-    sel.onchange = () => { bouton.hidden = sel.value === chantierAffiche(bls[k]); };
-    bouton.onclick = () => { bouton.hidden = true; deplacerBlFiable(bls[k].id, sel.value); };
+    brancherChoix(champ, groupesChantiersBl(chantiers), v => {
+      marquerChoix(champ, v, nomCourt(v));
+      bouton.hidden = v === chantierAffiche(bls[k]);
+    });
+    bouton.onclick = () => { bouton.hidden = true; deplacerBlFiable(bls[k].id, champ.dataset.valeur); };
   });
 }
 
@@ -898,6 +905,7 @@ ROUTES.bl = async function () {
     const miens = ch.filter(c => c.groupe === 'miens');
     if (!choisi && miens.length === 1) choisi = miens[0].libelle;
     const autres = ch.filter(c => c.groupe !== 'miens');
+    const autreChoisi = choisi && !miens.some(c => c.libelle === choisi) ? choisi : '';
     APP().innerHTML = `
       <div class="entete">
         <button class="retour" type="button" aria-label="Retour" onclick="aller(accueilPerso())">${ICONES.retour}</button>
@@ -909,8 +917,8 @@ ROUTES.bl = async function () {
         <span class="sous">Pour quel chantier ?</span>
         ${!donnees ? '<p class="discret">Chargement des chantiers…</p>' : `
         ${miens.length ? `<div class="choix bl-chantiers" style="--n:1">${miens.map(c => `<button type="button" data-bl-ch="${esc(c.libelle)}" aria-pressed="${c.libelle === choisi}">${esc(nomCourt(c.libelle))}</button>`).join('')}</div>` : ''}
-        ${autres.length ? `<select id="blAutre" aria-label="Autre chantier">
-          <option value="">${miens.length ? 'Autre chantier…' : 'Choisir le chantier…'}</option>${optionsChantiersBl(autres, miens.some(c => c.libelle === choisi) ? '' : choisi)}</select>` : ''}`}
+        ${autres.length ? champChoix('id="blAutre"', { valeur: autreChoisi, affiche: nomCourt(autreChoisi), label: 'Autre chantier',
+          placeholder: miens.length ? 'Autre chantier : tape un nom' : 'Choisir le chantier : tape un nom' }) : ''}`}
       </section>
       <p class="erreur-champ" id="erreur" role="alert"></p>
       <div class="pied">
@@ -931,9 +939,9 @@ ROUTES.bl = async function () {
       </section>` : ''}`;
     $$('[data-reprendre]').forEach(i => i.onchange = ev => { const f = ev.target.files[0]; if (f) prendre(f); });
     $$('[data-bl-ch]').forEach(b => b.onclick = () => { choisi = b.dataset.blCh; dessiner(); });
-    if ($('#blAutre')) $('#blAutre').onchange = ev => { if (ev.target.value) { choisi = ev.target.value; dessiner(); } };
+    brancherChoix($('#blAutre'), groupesChantiersBl(autres), v => { choisi = v; dessiner(); });
     if ($('#envoyerBl')) $('#envoyerBl').onclick = envoyerBl;
-    if (donnees) brancherDeplacementBl(donnees.derniers);
+    if (donnees) brancherDeplacementBl(donnees.derniers, donnees.chantiers);
     // Version 55 : toucher la vignette ouvre le BL en grand (photo lue dans Drive par le serveur).
     $$('[data-bl-voir]').forEach(v => v.onclick = () => {
       const b = donnees.derniers[+v.dataset.blVoir];
@@ -1103,13 +1111,32 @@ function choix(nom, options, valeur, n) {
   </div>`;
 }
 
+/** Version 63 : le texte du champ « Lieu d'embauche » pour un lieu choisi (chantier sans son code, dépôt, commune). */
+function afficheLieu(lieu, ref) {
+  if (!lieu) return '';
+  return lieu === ref.depot ? "Dépôt d'Objat" : nomCourt(lieu);
+}
+/** Version 63 : les groupes de la recherche du lieu d'embauche (mêmes groupes que l'ancienne liste). */
+function groupesLieu(e, ref) {
+  const communes = ref.lieux.filter(l => l.type !== 'DEPOT' && !e.chantiers.includes(l.libelle))
+    .sort((a, b) => parNomCourt(a.libelle, b.libelle));
+  return [
+    { titre: 'Sur le chantier', items: e.chantiers.map(c => ({ valeur: c, libelle: nomCourt(c), cle: c })) },
+    { titre: 'Au dépôt', items: [{ valeur: ref.depot, libelle: "Dépôt d'Objat", cle: `Dépôt d'Objat ${ref.depot}` }] },
+    { titre: 'Ailleurs (fournisseur, autre commune)', items: communes.map(l => ({ valeur: l.libelle, libelle: l.libelle, cle: l.libelle })) },
+  ];
+}
+/** Version 63 : les chantiers à ajouter à une journée (ceux pas encore choisis), par ordre alphabétique du nom affiché. */
+function groupesAjoutChantier(e, ref) {
+  return [{ titre: 'Tous les chantiers', items: ref.chantiers.filter(c => !e.chantiers.includes(c.libelle))
+    .sort((a, b) => parNomCourt(a.libelle, b.libelle)).map(c => ({ valeur: c.libelle, libelle: nomCourt(c.libelle), cle: c.libelle })) }];
+}
+
 /**
  * options.chantiersPossibles : les chantiers du chef, à cocher (intérimaire : au moins un) au lieu de
  * la liste de tous les chantiers. options.nomVerrouille : correction d'un intérimaire, son nom ne change pas.
  */
 function formulaireJournee(e, ref, interimaire, options = {}) {
-  const communes = ref.lieux.filter(l => l.type !== 'DEPOT');
-  const chantiers = ref.chantiers;
   const total = (() => {
     const [a, b, c, d] = [e.hEmbauche, e.hPause, e.hReprise, e.hDebauche].map(minutes);
     if ([a, b, c, d].some(x => x === null) || !(a < b && b <= c && c < d)) return null;
@@ -1137,21 +1164,11 @@ function formulaireJournee(e, ref, interimaire, options = {}) {
       <div class="champ">
         <span class="etiquette">${e.chantiers.length > 1 ? 'Chantiers' : 'Chantier'}</span>
         <div class="chips">${e.chantiers.map(c => `<span class="chip">${esc(nomCourt(c))}<button type="button" data-retirer="${esc(c)}" aria-label="Retirer ${esc(c)}">×</button></span>`).join('') || '<span class="discret">Aucun chantier choisi</span>'}</div>
-        <select id="ajoutChantier" aria-label="Ajouter un chantier">
-          <option value="">+ Ajouter un chantier</option>
-          ${chantiers.filter(c => !e.chantiers.includes(c.libelle)).sort((a, b) => parNomCourt(a.libelle, b.libelle)).map(c => `<option value="${esc(c.libelle)}">${esc(nomCourt(c.libelle))}</option>`).join('')}
-        </select>
+        ${champChoix('id="ajoutChantier"', { label: 'Ajouter un chantier', placeholder: '+ Ajouter un chantier : tape un nom ou une commune' })}
       </div>`}
       <div class="champ">
         <label for="lieuEmbauche">Lieu d'embauche</label>
-        <select id="lieuEmbauche" data-champ="lieuEmbauche">
-          ${e.lieuEmbauche ? '' : '<option value="">Choisir…</option>'}
-          ${e.chantiers.length ? `<optgroup label="Sur le chantier">${e.chantiers.map(c => `<option value="${esc(c)}" ${c === e.lieuEmbauche ? 'selected' : ''}>${esc(nomCourt(c))}</option>`).join('')}</optgroup>` : ''}
-          <optgroup label="Au dépôt"><option value="${esc(ref.depot)}" ${e.lieuEmbauche === ref.depot ? 'selected' : ''}>Dépôt d'Objat</option></optgroup>
-          <optgroup label="Ailleurs (fournisseur, autre commune)">
-            ${communes.filter(l => !e.chantiers.includes(l.libelle)).sort((a, b) => parNomCourt(a.libelle, b.libelle)).map(l => `<option ${l.libelle === e.lieuEmbauche ? 'selected' : ''}>${esc(l.libelle)}</option>`).join('')}
-          </optgroup>
-        </select>
+        ${champChoix('id="lieuEmbauche"', { valeur: e.lieuEmbauche, affiche: afficheLieu(e.lieuEmbauche, ref), label: "Lieu d'embauche", placeholder: 'Choisir : chantier, dépôt ou commune' })}
       </div>
     </section>
 
@@ -1211,7 +1228,7 @@ function formulaireJournee(e, ref, interimaire, options = {}) {
 }
 
 /** Branche les champs du formulaire sur l'état ; redessine seulement si la structure change. */
-function brancherFormulaire(e, redessiner) {
+function brancherFormulaire(e, redessiner, ref) {
   $$('[data-champ]').forEach(el => {
     el.addEventListener('input', () => {
       const k = el.dataset.champ;
@@ -1241,10 +1258,13 @@ function brancherFormulaire(e, redessiner) {
     e.parts[e.chantiers[i]] = Math.max(0, actuelles[i] + 15 * Number(b.dataset.sens));
     redessiner();
   });
-  const ajout = $('#ajoutChantier');
-  if (ajout) ajout.onchange = () => {
-    if (ajout.value) { e.chantiers.push(ajout.value); if (!e.lieuEmbauche) e.lieuEmbauche = ajout.value; redessiner(); }
-  };
+  // Version 63 : chantier et lieu d'embauche se cherchent en tapant (plus de liste déroulante).
+  brancherChoix($('#ajoutChantier'), () => groupesAjoutChantier(e, ref), v => {
+    if (!e.chantiers.includes(v)) e.chantiers.push(v);
+    if (!e.lieuEmbauche) e.lieuEmbauche = v;
+    redessiner();
+  });
+  brancherChoix($('#lieuEmbauche'), () => groupesLieu(e, ref), v => { e.lieuEmbauche = v; redessiner(); }, ['lieu', 'lieux']);
   $$('[data-coche-chantier]').forEach(b => b.onchange = () => {
     const tous = $$('[data-coche-chantier]').map(x => x.dataset.cocheChantier);
     const coches = new Set($$('[data-coche-chantier]').filter(x => x.checked).map(x => x.dataset.cocheChantier));
@@ -1405,7 +1425,7 @@ ROUTES.saisie = async function (date) {
       </div>
       ${formulaireJournee(e, ref, false)}
       <div class="pied"><button class="btn btn-principal" type="button" id="envoyer">Envoyer ma journée</button></div>`;
-    brancherFormulaire(e, dessiner);
+    brancherFormulaire(e, dessiner, ref);
     $('#envoyer').onclick = soumettre;
     window.scrollTo(0, y);
   };
@@ -1543,6 +1563,69 @@ function resultatsMateriaux(liste, texte, pris) {
 }
 
 /**
+ * Version 63 : choisir un chantier (ou un lieu) en tapant un morceau de son nom, comme les matériaux (version 61), au lieu
+ * de parcourir une liste déroulante de 80 chantiers et plus. Chaque mot tapé doit se trouver dans le libellé : client, nom
+ * du chantier, commune ou code ; accents, majuscules et ponctuation ignorés, « st » = « saint ». Rien de tapé : les groupes
+ * proposés (« Tous les chantiers », ou « Chantiers du jour » puis « Autres chantiers » pour un BL). Sert à la saisie de la
+ * journée (ajout d'un chantier, lieu d'embauche) et aux BL (photo depuis l'accueil, « Chantier de ce BL »).
+ *
+ * champChoix(attributs, …) : le champ et sa boîte de résultats ; brancherChoix(champ, groupes, choisir) : la recherche.
+ * groupes : [{ titre, items: [{ valeur, libelle, cle }] }] (cle : le texte cherché, libellé complet avec le code).
+ * Le champ garde la valeur choisie dans data-valeur et son texte dans data-affiche ; quitté sans choix, il les reprend.
+ */
+const ABREV_RECHERCHE = { st: 'saint', ste: 'sainte' };
+const cleChantier = t => cleRecherche(t).replace(/[^a-z0-9,]+/g, ' ').split(' ').filter(Boolean)
+  .map(m => ABREV_RECHERCHE[m] || m).join(' ');
+function champChoix(attributs, { valeur = '', affiche = '', label, placeholder, desactive = false }) {
+  return `<div class="cherche-choix"><input type="search" autocomplete="off" enterkeyhint="search" ${attributs}
+    aria-label="${esc(label)}" placeholder="${esc(placeholder)}" value="${esc(affiche)}" data-valeur="${esc(valeur)}" data-affiche="${esc(affiche)}"${valeur ? ' data-choisi="1"' : ''}${desactive ? ' disabled' : ''}>
+    <div class="resultats" hidden></div></div>`;
+}
+/** Les résultats : sans texte, les groupes ; sinon les correspondances, dans l'ordre des groupes, chacune une fois. */
+function resultatsChoix(groupes, texte, [un, plusieurs]) {
+  const rendu = g => `<p class="groupe">${esc(g.titre)}</p>${g.items.map(x =>
+    `<button type="button" class="resultat" data-valeur-choix="${esc(x.valeur)}">${esc(x.libelle)}</button>`).join('')}`;
+  const mots = cleChantier(texte).split(' ').filter(Boolean);
+  if (!mots.length) {
+    const pleins = groupes.filter(g => g.items.length);
+    return pleins.length ? pleins.map(rendu).join('') : `<p class="discret aucun">Aucun ${un} à proposer.</p>`;
+  }
+  const vus = new Set(), trouves = [];
+  groupes.forEach(g => g.items.forEach(x => {
+    if (vus.has(x.valeur)) return;
+    const cle = cleChantier(x.cle || x.libelle);
+    if (mots.every(m => cle.includes(m))) { vus.add(x.valeur); trouves.push(x); }
+  }));
+  if (!trouves.length) return `<p class="discret aucun">Aucun ${un} ne contient « ${esc(String(texte).trim())} ».</p>`;
+  return rendu({ titre: `${trouves.length} ${trouves.length > 1 ? plusieurs : un}`, items: trouves });
+}
+/** Marque le choix dans le champ, sans redessiner l'écran. */
+function marquerChoix(champ, valeur, affiche) {
+  champ.dataset.valeur = valeur; champ.dataset.affiche = affiche; champ.value = affiche;
+  if (valeur) champ.dataset.choisi = '1'; else delete champ.dataset.choisi;
+}
+function brancherChoix(champ, groupes, choisir, mots = ['chantier', 'chantiers']) {
+  if (!champ) return;
+  const boite = champ.nextElementSibling;
+  const montrer = () => {
+    boite.innerHTML = resultatsChoix(typeof groupes === 'function' ? groupes() : groupes, champ.dataset.choisi ? '' : champ.value, mots);
+    boite.hidden = false;
+    boite.querySelectorAll('[data-valeur-choix]').forEach(b => {
+      b.onmousedown = ev => ev.preventDefault();             // garder le champ actif jusqu'au choix
+      b.onclick = () => { boite.hidden = true; choisir(b.dataset.valeurChoix); };
+    });
+  };
+  champ.onfocus = () => { if (champ.dataset.choisi) champ.select(); montrer(); };
+  champ.oninput = () => { delete champ.dataset.choisi; montrer(); };
+  // Un léger délai : sur certains téléphones, le champ perd la main avant que le toucher d'un résultat soit compté.
+  champ.onblur = () => setTimeout(() => {
+    if (!champ.isConnected || document.activeElement === champ) return;
+    boite.hidden = true;
+    marquerChoix(champ, champ.dataset.valeur || '', champ.dataset.affiche || '');
+  }, 150);
+}
+
+/**
  * Petites vignettes (≈ 10 Ko) des BL envoyés depuis ce téléphone, pour que la case d'un BL déjà envoyé
  * ne soit pas grise. La photo en grand se demande au serveur en touchant la case (version 48).
  * Gardées pour les 10 derniers jours ; si la mémoire manque, on s'en passe.
@@ -1593,21 +1676,21 @@ function voirPhoto(titre, charger, deplacer) {
     <div class="visionneuse-tete"><span>${esc(nomCourt(titre))}</span>
       <button type="button" class="icone-btn" aria-label="Fermer" data-fermer>×</button></div>
     <div class="visionneuse-corps"><p class="discret">Chargement…</p></div>
-    ${deplacer ? '<div class="visionneuse-pied"><label for="blChantier">Chantier de ce BL</label><div class="bl-infos" id="blDeplacer"><select disabled><option>Chargement…</option></select></div></div>' : ''}`;
+    ${deplacer ? '<div class="visionneuse-pied"><span class="etiquette">Chantier de ce BL</span><div class="bl-infos" id="blDeplacer"><input type="search" disabled value="Chargement…" aria-label="Chantier de ce BL"></div></div>' : ''}`;
   document.body.appendChild(voile);
   if (deplacer) {
-    // Version 55 : même mécanique que « Mes BL » : liste, « Ranger ici », file d'attente, état affiché ici.
+    // Version 55 : même mécanique que « Mes BL » : liste (version 63 : recherche), « Ranger ici », file d'attente, état affiché ici.
     const zone = voile.querySelector('#blDeplacer');
     const bl = { id: deplacer.id, chantier: deplacer.actuel };
     let chantiers = null;
     const dessinerChoix = () => {
       if (!document.body.contains(voile) || !chantiers) return;
       zone.innerHTML = champDeplacementBl(bl, 0, chantiers, !!deplacer.modifiable);
-      const sel = zone.querySelector('select'), bouton = zone.querySelector('[data-bl-ranger]');
-      sel.onchange = () => { bouton.hidden = sel.value === chantierAffiche(bl); };
+      const champ = zone.querySelector('[data-bl-deplacer]'), bouton = zone.querySelector('[data-bl-ranger]');
+      brancherChoix(champ, groupesChantiersBl(chantiers), v => { marquerChoix(champ, v, nomCourt(v)); bouton.hidden = v === chantierAffiche(bl); });
       bouton.onclick = async () => {
         bouton.hidden = true;
-        const vers = sel.value, origine = chantierAffiche(bl);
+        const vers = champ.dataset.valeur, origine = chantierAffiche(bl);
         const titre = voile.querySelector('.visionneuse-tete span');
         titre.textContent = nomCourt(vers);
         deplacer.apres(vers);                       // le rapport montre tout de suite le BL sous son nouveau chantier
@@ -1624,7 +1707,7 @@ function voirPhoto(titre, charger, deplacer) {
     surDeplacement = () => { dessinerChoix(); if (avant) avant(); };
     voile.addEventListener('fermeture', () => { surDeplacement = avant; });
     appel('bl_gars', { date: deplacer.date }).then(r => { chantiers = r.chantiers; dessinerChoix(); },
-      () => { zone.innerHTML = `<select disabled><option>${esc(nomCourt(deplacer.actuel))}</option></select>`; });
+      () => { zone.innerHTML = `<input type="search" disabled value="${esc(nomCourt(deplacer.actuel))}" aria-label="Chantier de ce BL">`; });
   }
   const fermer = () => { voile.dispatchEvent(new Event('fermeture')); voile.remove(); window.removeEventListener('popstate', surRetour); };
   const surRetour = () => fermer();
@@ -2281,7 +2364,7 @@ ROUTES['chef-journee'] = async function (param) {
       <div class="alerte jaune">${ICONES.attention}<span>Une fois enregistrée, la journée est validée à ton nom${ajout ? ' et il rejoint ton équipe pour la journée' : ''}.</span></div>
       ${formulaireJournee(e, ref, false, ajout ? { chantiersPossibles: possibles } : {})}
       <div class="pied"><button class="btn btn-principal" type="button" id="envoyer">Enregistrer et valider</button></div>`;
-    brancherFormulaire(e, dessiner);
+    brancherFormulaire(e, dessiner, ref);
     $('#envoyer').onclick = async () => {
       const probleme = controler(e, false);
       if (probleme) { $('#erreur').textContent = probleme; $('#erreur').scrollIntoView({ block: 'center' }); return; }
@@ -2346,7 +2429,7 @@ ROUTES.interimaire = async function (param) {
       </div>
       ${formulaireJournee(e, ref, true, { chantiersPossibles: possibles, nomVerrouille: !!existant })}
       <div class="pied"><button class="btn btn-principal" type="button" id="envoyer">Enregistrer sa journée</button></div>`;
-    brancherFormulaire(e, dessiner);
+    brancherFormulaire(e, dessiner, ref);
     const avertir = () => {
       const m = existant ? '' : messageDejaPersonne(e.nomInterimaire, !!auNomDe);
       $('#avertNom').textContent = m;
@@ -2642,7 +2725,7 @@ ROUTES.bureau = async function (date) {
         <button class="icone-btn" type="button" aria-label="Se déconnecter" id="sortir">${ICONES.sortie}</button>
       </div>
 
-      ${d.referentiels ? `<button type="button" class="alerte orange alerte-bouton" id="referentiels">${ICONES.attention}<span><b>${d.referentiels} problème${d.referentiels > 1 ? 's' : ''} dans le planning</b> (nom ou chantier inconnu, personne sans code…) — Voir</span></button>` : ''}
+      ${d.referentiels ? `<button type="button" class="alerte orange alerte-bouton" id="referentiels">${ICONES.attention}<span><b>${d.referentiels} problème${d.referentiels > 1 ? 's' : ''} dans le planning</b> (nom ou chantier inconnu, ligne incomplète, personne sans code…) — Voir</span></button>` : ''}
       <!-- La chaîne de la paie, par jour entier : à régler → à valider → dans l'envoi. -->
       <div class="chaine">
         <button type="button" class="etape rouge" data-liste-paie="REGLER"><b>${P.regler.jours}</b><span>jour${P.regler.jours > 1 ? 's' : ''} à régler<br>(${P.regler.points} point${P.regler.points > 1 ? 's' : ''})</span></button>
@@ -2917,7 +3000,7 @@ ROUTES.paie = async function (etape) {
 
 /**
  * Problèmes du planning et de ses référentiels (nom ou chantier inconnu, personne sans code, planning du
- * jour introuvable). Pas de justification : ils disparaissent quand le planning est corrigé (version 36).
+ * jour introuvable ; version 63 : lignes incomplètes d'un onglet de référence, sans date). Pas de justification : ils disparaissent quand le planning est corrigé (version 36).
  */
 ROUTES.referentiels = async function () {
   const toujoursIci = ecranCourant();
@@ -2935,7 +3018,7 @@ ROUTES.referentiels = async function () {
     ${liste.length ? liste.map(c => `
       <div class="ctl referentiel" data-controle="${esc(c.id)}">
         <div class="t">${esc(c.titre)}</div>
-        <div class="d">${esc(dateLongue(c.date))} — ${esc(c.detail || '')}</div>
+        <div class="d">${c.type === 'LIGNES_INCOMPLETES' ? '' : `${esc(dateLongue(c.date))} — `}${esc(c.detail || '')}</div>
         ${c.aide ? `<div class="d aide">À faire : ${esc(c.aide)}</div>` : ''}
       </div>`).join('') : `<div class="alerte vert">${ICONES.ok}<span>Aucun problème dans le planning.</span></div>`}`;
 };
@@ -3111,7 +3194,7 @@ ROUTES['bl-bureau'] = async function (param) {
                 ${b.modifiable ? `<button class="option" type="button" data-bl-suppr="${k}">Supprimer ce BL</button>` : ''}</div>
             </div>`).join('')}</section>`).join('')}`;
     if (!d) return;
-    brancherDeplacementBl(d.bl);
+    brancherDeplacementBl(d.bl, d.chantiers);
     $$('[data-bl-voir]').forEach(v => v.onclick = () => {
       const b = d.bl[+v.dataset.blVoir];
       voirPhoto(chantierAffiche(b), () => appel('photo_bl', { date: b.date, id: b.id }).then(r => r.image));
@@ -3260,7 +3343,7 @@ ROUTES['bureau-journee'] = async function (param) {
           <button class="btn btn-clair" type="button" id="ouverte">Laisser ouverte</button></div>
         <p class="discret mini-aide" id="aideOuverte">${esc(phraseOuverte)}</p>
       </div>`;
-    brancherFormulaire(e, dessiner);
+    brancherFormulaire(e, dessiner, ref);
     const envoyer = async valider => {
       const probleme = controler(e, false);
       if (probleme) { $('#erreur').textContent = probleme; return; }

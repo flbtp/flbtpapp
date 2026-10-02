@@ -220,6 +220,9 @@ input[type=range].av:disabled { opacity: .5; }
 .resultats .resultat { display: block; width: 100%; min-height: 44px; padding: 10px 12px; border: none; border-top: 1px solid var(--creux); background: none; text-align: left; font: inherit; color: var(--encre); cursor: pointer; }
 .resultats .resultat:disabled { color: var(--gris); cursor: default; }
 .resultats .aucun { margin: 0; padding: 10px 12px; }
+/* Version 63 : chantier ou lieu cherché en tapant (journée : ajout d'un chantier, lieu d'embauche ; BL), résultats sous le champ. */
+.cherche-choix { display: flex; flex-direction: column; gap: 6px; }
+.cherche-choix input[data-choisi] { font-weight: 600; }
 .pas { display: flex; align-items: center; gap: 14px; }
 .pas button { width: 48px; height: 48px; border: 2px solid var(--trait); border-radius: 10px; background: var(--surface); font-size: 24px; font-weight: 700; cursor: pointer; color: var(--encre); }
 .pas output { font-size: 22px; font-weight: 700; min-width: 24px; text-align: center; white-space: nowrap; }
@@ -559,7 +562,9 @@ ul.points { margin: 0; padding-left: 18px; font-size: 14.5px; }
 .btn-bl input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
 .bl-apercu { width: 120px; aspect-ratio: 3 / 4; border-radius: 8px; background: var(--creux) center / cover no-repeat; margin: 0 auto; display: grid; place-items: center; }
 .bl-chantiers button { font-family: var(--titre); font-size: 18px; text-align: left; padding: 12px; }
-#blAutre, .bl-infos select, .visionneuse-pied select { width: 100%; font: inherit; font-size: 16px; padding: 10px; border-radius: 8px; border: 1px solid var(--trait); background: #fff; color: var(--encre); }
+/* Version 63 : plus de liste déroulante de chantiers ; le champ de recherche garde l'allure des anciennes listes des BL. */
+#blAutre, .bl-infos input[type=search], .visionneuse-pied input[type=search] { width: 100%; min-height: 44px; font: inherit; font-size: 16px; padding: 0 10px; border-radius: 8px; border: 1px solid var(--trait); background: #fff; color: var(--encre); }
+.visionneuse-pied .resultats { max-height: 40vh; }
 .bl-ligne { display: flex; gap: 12px; align-items: center; }
 .bl-ligne + .bl-ligne { border-top: 1px solid var(--trait); padding-top: 12px; }
 .bl-vignette { width: 54px; flex: none; aspect-ratio: 3 / 4; border-radius: 6px; background: var(--creux) center / cover no-repeat; }
