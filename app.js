@@ -12,7 +12,7 @@
  * Numéro affiché sur l'écran de connexion et l'écran bureau (plus sur l'accueil des gars : version 48).
  * À augmenter à chaque dépôt de nouveaux fichiers sur GitHub : c'est le seul numéro à changer.
  */
-const VERSION_APPLI = '59';
+const VERSION_APPLI = '60';
 
 // ---------------------------------------------------------------------------
 // Petits outils
@@ -1506,12 +1506,29 @@ ROUTES.envoye = function () {
 // Écran : rapport de chantier (responsable du bloc)
 // ---------------------------------------------------------------------------
 
-/** Les matériaux sont classés par famille : la liste en compte plus de cent. */
-function optionsMateriaux(liste, choisi) {
+/**
+ * Les matériaux sont classés par famille : la liste en compte plus de cent. Version 60 : les matériaux fréquents
+ * (FREQUENT = OUI au référentiel) en tête, dans un groupe « Fréquents », puis les familles ; familles et matériaux par
+ * ordre alphabétique (nombres dans l'ordre naturel : 2/4, 4/6, 6/10, 10/14 ; accents et majuscules ignorés).
+ * Un matériau fréquent figure aussi dans sa famille.
+ */
+const triAlpha = (a, b) => String(a).localeCompare(String(b), 'fr', { numeric: true, sensitivity: 'base' });
+function groupesMateriaux(liste) {
+  const parNom = l => [...l].sort((a, b) => triAlpha(a.materiau, b.materiau));
   const familles = {};
   liste.forEach(x => { (familles[x.categorie || 'AUTRES'] = familles[x.categorie || 'AUTRES'] || []).push(x); });
-  return Object.keys(familles).map(f => `<optgroup label="${esc(f)}">${familles[f]
-    .map(x => `<option ${x.materiau === choisi ? 'selected' : ''}>${esc(x.materiau)}</option>`).join('')}</optgroup>`).join('');
+  const groupes = Object.keys(familles).sort(triAlpha).map(f => ({ libelle: f, materiaux: parNom(familles[f]) }));
+  const frequents = parNom(liste.filter(x => x.frequent));
+  return frequents.length ? [{ libelle: 'Fréquents', materiaux: frequents }, ...groupes] : groupes;
+}
+function optionsMateriaux(liste, choisi) {
+  let selectionne = false;        // un matériau fréquent est deux fois dans la liste : une seule option choisie
+  const option = x => {
+    const sel = !selectionne && x.materiau === choisi;
+    if (sel) selectionne = true;
+    return `<option ${sel ? 'selected' : ''}>${esc(x.materiau)}</option>`;
+  };
+  return groupesMateriaux(liste).map(g => `<optgroup label="${esc(g.libelle)}">${g.materiaux.map(option).join('')}</optgroup>`).join('');
 }
 
 /**
@@ -1803,8 +1820,10 @@ ROUTES.rapport = async function (param) {
     });
     $$('[data-ajout-mat]').forEach(b => b.onclick = () => {
       // Version 58 : le premier matériau de la liste qui n'est pas déjà sur ce chantier.
+      // Version 60 : dans l'ordre affiché, donc le premier fréquent s'il y en a.
       const c = e.chantiers[+b.dataset.ajoutMat];
-      const m = d.listeMateriaux.find(x => !c.materiaux.some(y => y.materiau === x.materiau)) || d.listeMateriaux[0] || { materiau: '', unite: '' };
+      const ordre = groupesMateriaux(d.listeMateriaux).flatMap(g => g.materiaux);
+      const m = ordre.find(x => !c.materiaux.some(y => y.materiau === x.materiau)) || ordre[0] || { materiau: '', unite: '' };
       c.materiaux.push({ materiau: m.materiau, quantite: '', unite: m.unite }); dessiner();
     });
     $$('[data-photo]').forEach(input => input.onchange = async ev => {
@@ -2642,7 +2661,7 @@ function htmlCompteRenduRenta(x) {
   return `<div class="cr-renta">
     <p><b>Rentabilité</b> : ${rien ? 'rien à écrire' : `${n(x.journees, 'ligne')} d'heures, ${n(x.materiaux, 'matériau')}, ${n(x.bl, 'BL')}, ${n(x.avancement, 'avancement')} écrits dans les fichiers de rentabilité`}${x.reste ? ` — ${n(x.reste, 'journée')} en attente du prochain envoi` : ''}.</p>
     ${(x.fichiersCrees || []).length ? `<p><b>Fichiers créés</b></p><ul class="points">${x.fichiersCrees.map(f => `<li>${esc(f)}</li>`).join('')}</ul>` : ''}
-    ${sansPrix.length ? `<p><b>Matériaux sans prix</b> (à compléter dans PRIX, et dans le fichier du chantier)</p><ul class="points">${sansPrix.map(m => `<li>${esc(m)}</li>`).join('')}</ul>` : ''}
+    ${sansPrix.length ? `<p><b>Matériaux sans prix</b> (à compléter dans la colonne PU de l'onglet MATERIAUX du planning, et dans le fichier du chantier)</p><ul class="points">${sansPrix.map(m => `<li>${esc(m)}</li>`).join('')}</ul>` : ''}
     ${echecs.length ? `<p class="rouge"><b>Rentabilité non écrite</b> (repartira au prochain envoi)</p><ul class="points">${echecs.map(e => `<li><b>${esc(e.chantier)}</b> : ${esc(e.erreur)}</li>`).join('')}</ul>` : ''}
   </div>`;
 }
