@@ -1673,6 +1673,17 @@ ROUTES.rapport = async function (param) {
   const nombre = x => String(Math.round(Number(x) * 1000) / 1000).replace('.', ',');
   const valeurDuJour = q => { const t = String(q ?? '').trim(); if (!t) return null; const n = Number(t.replace(',', '.')); return Number.isFinite(n) ? n : null; };
   const aSaisi = q => String(q ?? '').trim() !== '';
+  // Version 62 : une case de quantité n'accepte que des chiffres et un seul séparateur décimal (le point devient une virgule),
+  // pendant la frappe comme au collage. Avant, « 5a » sur une ligne reprise était ignoré sans rien dire par le serveur.
+  const nettoyerQuantite = v => { const t = String(v).replace(/\./g, ',').replace(/[^0-9,]/g, ''); const i = t.indexOf(','); return i < 0 ? t : t.slice(0, i + 1) + t.slice(i + 1).replace(/,/g, ''); };
+  const filtrerQuantite = el => {
+    const propre = nettoyerQuantite(el.value);
+    if (propre === el.value) return;
+    const fin = el.value.length - (el.selectionEnd ?? el.value.length);          // garde le curseur à sa place depuis la fin
+    el.value = propre;
+    try { el.setSelectionRange(propre.length - fin, propre.length - fin); } catch (err) { /* champ sans sélection */ }
+  };
+  const illisible = q => aSaisi(q) && valeurDuJour(q) === null;
   const estFinie = t => !!t.avant && t.avant.mode !== 'QUANTITE' && Number(t.avant.pourcentage) >= 100 && !t.duJour && !t.rouverte;
   // Intitulé des colonnes, une fois au-dessus de la liste.
   const enteteAujourdhui = () => '<div class="eq-tete"><span>Déjà</span><span></span><span>Aujourd\'hui</span><span></span><span>Total</span></div>';
@@ -1685,7 +1696,7 @@ ROUTES.rapport = async function (param) {
             <span class="op">+</span>${champ}<span class="op">=</span>
             <span class="somme${valeurDuJour(q) === null ? ' vide' : ''}">${texteTotal(cumul, q)}</span>
           </div>`;
-  const champQteMat = (i, k, m) => `<div class="qte"><input type="text" inputmode="decimal" aria-label="Quantité utilisée aujourd'hui" value="${esc(m.quantite === undefined || m.quantite === null ? '' : String(m.quantite))}" data-ch="${i}" data-mat="${k}" data-k="quantite"><span class="unite-fixe">${esc(m.unite || '')}</span></div>`;
+  const champQteMat = (i, k, m) => `<div class="qte"><input type="text" inputmode="decimal" aria-label="Quantité utilisée aujourd'hui" value="${esc(m.quantite === undefined || m.quantite === null ? '' : String(m.quantite).replace('.', ','))}" data-ch="${i}" data-mat="${k}" data-k="quantite"><span class="unite-fixe">${esc(m.unite || '')}</span></div>`;
   // Ligne nouvelle (matériau choisi, tâche ajoutée en quantité) : même colonnes, « 0 / NOUVEAU » à la place du cumul.
   const ligneEqNouveau = (q, champ) => `
           <div class="eq">
@@ -1737,7 +1748,7 @@ ROUTES.rapport = async function (param) {
             <button type="button" data-mode="${i}-${k}" data-v="QUANTITE" aria-pressed="${t.mode === 'QUANTITE'}">Quantité du jour</button>
           </div>`;
         if (t.mode === 'QUANTITE') {
-          const champ = `<input type="text" inputmode="decimal" aria-label="Quantité faite aujourd'hui" value="${esc(t.quantite ?? '')}" data-ch="${i}" data-av="${k}" data-k="quantite">`;
+          const champ = `<input type="text" inputmode="decimal" aria-label="Quantité faite aujourd'hui" value="${esc(String(t.quantite ?? '').replace('.', ','))}" data-ch="${i}" data-av="${k}" data-k="quantite">`;
           if (connue) {
             const tete = enteteAuj ? '' : enteteAujourdhui(); enteteAuj = true;
             return `${tete}
@@ -1864,6 +1875,7 @@ ROUTES.rapport = async function (param) {
     };
     const brancherMat = el => el.oninput = el.onchange = () => {
       const c = e.chantiers[+el.dataset.ch], m = c.materiaux[+el.dataset.mat];
+      if (el.dataset.k === 'quantite') filtrerQuantite(el);
       m[el.dataset.k] = el.value;
       if (el.dataset.k === 'quantite') majCumul(el.closest('.ligne'), el.value);
     };
@@ -1875,6 +1887,7 @@ ROUTES.rapport = async function (param) {
 
     $$('[data-av]').forEach(el => el.oninput = () => {
       const c = e.chantiers[+el.dataset.ch], t = c.avancement[+el.dataset.av];
+      if (el.dataset.k === 'quantite') filtrerQuantite(el);
       t[el.dataset.k] = el.dataset.k === 'pourcentage' ? Number(el.value) : el.value;
       const ligne = el.closest('.ligne');
       if (el.dataset.k === 'quantite') { majCumul(ligne, el.value); return; }
@@ -2039,6 +2052,10 @@ ROUTES.rapport = async function (param) {
       const vide = c.avancement.find(t => !String(t.tache).trim());
       if (vide) { e.ouvert = e.chantiers.indexOf(c); dessiner(); $('#erreur').textContent = `${c.libelle} : donne un nom à chaque tâche, ou retire-la.`; return; }
       // Version 57 : une tâche connue en quantité peut rester vide (rien fait ce jour-là) ; une nouvelle, non.
+      // Version 62 : une quantité saisie mais illisible (ex. « , » seule) est refusée, jamais ignorée.
+      const illT = c.avancement.find(t => t.mode === 'QUANTITE' && illisible(t.quantite));
+      const illM = c.materiaux.find(m => !m.inactif && illisible(m.quantite));
+      if (illT || illM) { e.ouvert = e.chantiers.indexOf(c); dessiner(); $('#erreur').textContent = `${c.libelle} : quantité illisible pour « ${illT ? illT.tache : illM.materiau} ».`; return; }
       // Version 62 : une tâche nouvelle en quantité doit avoir son unité (plus de « m2 » par défaut).
       const sansUnite = c.avancement.find(t => t.mode === 'QUANTITE' && !t.avant && !UNITES_TACHE.includes(t.unite));
       if (sansUnite) { e.ouvert = e.chantiers.indexOf(c); dessiner(); $('#erreur').textContent = `${c.libelle} : choisis l'unité de « ${sansUnite.tache} ».`; return; }
