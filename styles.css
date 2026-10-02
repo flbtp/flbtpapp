@@ -166,6 +166,8 @@ input[type=search] { -webkit-appearance: none; appearance: none; }
 .rapport-chantier .ligne { border-left: 5px solid transparent; padding: 10px 10px 10px 12px; }
 .rapport-chantier .ligne.saisie { border-left-color: var(--jaune); background: #FBF6E8; }
 .rapport-chantier .nom { font-weight: 600; line-height: 1.25; overflow-wrap: anywhere; }
+/* Nom d'un matériau repris ou d'une tâche connue : c'est lui qu'on cherche dans la liste, les chiffres passent en retrait. */
+.rapport-chantier .ligne-cumul .nom, .rapport-chantier .tache-pct .nom { font-size: 18px; font-weight: 700; color: var(--encre); }
 .qte-ligne { display: grid; grid-template-columns: minmax(0, 1fr) 116px; gap: 10px; align-items: center; }
 /* Ligne à cumul : « déjà + aujourd'hui = total » en colonnes alignées d'une ligne à l'autre, largeur limitée (écran large). */
 .eq, .eq-tete { display: grid; grid-template-columns: minmax(0, 1fr) 10px 96px 10px minmax(0, 1fr); gap: 6px; align-items: center; max-width: 400px; }
@@ -174,12 +176,12 @@ input[type=search] { -webkit-appearance: none; appearance: none; }
 .eq-tete span:nth-child(3) { text-align: center; }
 .eq-tete span:nth-child(5), .eq .somme { text-align: right; }
 .eq .deja { display: flex; flex-direction: column; line-height: 1.15; min-width: 0; }
-.eq .deja b { font-size: 18px; }
-.eq .deja small { font-size: 13px; color: var(--gris); }
+.eq .deja b { font-size: 16px; font-weight: 500; color: var(--gris); font-variant-numeric: tabular-nums; }
+.eq .deja small { font-size: 12px; color: #8A8589; }
 .eq .op { text-align: center; font-weight: 700; color: var(--gris); }
-.eq .somme { font-weight: 700; font-size: 18px; white-space: nowrap; }
+.eq .somme { font-weight: 500; font-size: 16px; color: var(--gris); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .eq .somme.vide { color: #B4AFA4; font-weight: 600; }
-.ligne.saisie .eq .somme { color: var(--vert); }
+.ligne.saisie .eq .somme { color: var(--vert); font-weight: 700; }
 .qte { position: relative; display: flex; align-items: center; min-width: 0; }
 .qte input[type=text] { text-align: right; padding: 0 38px 0 10px; font-weight: 700; font-size: 19px; }
 /* Version 58 : unité du référentiel, affichée, jamais choisie (version 62 : dans le champ). */
