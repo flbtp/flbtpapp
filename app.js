@@ -1686,7 +1686,15 @@ ROUTES.rapport = async function (param) {
             <span class="somme${valeurDuJour(q) === null ? ' vide' : ''}">${texteTotal(cumul, q)}</span>
           </div>`;
   const champQteMat = (i, k, m) => `<div class="qte"><input type="text" inputmode="decimal" aria-label="Quantité utilisée aujourd'hui" value="${esc(m.quantite === undefined || m.quantite === null ? '' : String(m.quantite))}" data-ch="${i}" data-mat="${k}" data-k="quantite"><span class="unite-fixe">${esc(m.unite || '')}</span></div>`;
-  const ligneQteNouveau = (i, k, m) => `<div class="qte-ligne"><span class="tag-nouveau">Nouveau</span>${champQteMat(i, k, m)}</div>`;
+  // Ligne nouvelle (matériau choisi, tâche ajoutée en quantité) : même colonnes, « 0 / NOUVEAU » à la place du cumul.
+  const ligneEqNouveau = (q, champ) => `
+          <div class="eq">
+            <span class="deja" data-cumul="0"><b>0</b><small class="nouveau">Nouveau</small></span>
+            <span class="op">+</span>${champ}<span class="op">=</span>
+            <span class="somme${valeurDuJour(q) === null ? ' vide' : ''}">${texteTotal(0, q)}</span>
+          </div>`;
+  const ligneQteNouveau = (i, k, m) => ligneEqNouveau(m.quantite, champQteMat(i, k, m));
+  const UNITES_TACHE = ['m2', 'ml', 'm3', 't', 'un'];
   const pisteCurseur = (v, avant) => {
     const bas = Math.min(v, avant), haut = Math.max(v, avant), milieu = v >= avant ? 'var(--jaune)' : 'var(--rouge-moyen)';
     return `linear-gradient(90deg, var(--encre) 0 ${bas}%, ${milieu} ${bas}% ${haut}%, var(--creux) ${haut}% 100%)`;
@@ -1715,7 +1723,7 @@ ROUTES.rapport = async function (param) {
         </details>`;
       })()}
       ${(() => {
-        let enteteAuj = false;                      // l'intitulé « Aujourd'hui » une seule fois, au-dessus de la première tâche connue en quantité
+        let enteteAuj = false;                      // l'intitulé « Déjà · Aujourd'hui · Total » une seule fois, au-dessus de la première tâche en quantité
         return c.avancement.map((t, k) => {
         // Version 57 : une tâche connue (déclarée un jour d'avant) garde son nom et son mode.
         // Version 62 : connue en quantité → nom, cumul « déjà », quantité du jour à droite (unité fixe) ; en % → curseur deux couleurs.
@@ -1738,13 +1746,16 @@ ROUTES.rapport = async function (param) {
             `<div class="qte">${champ}<span class="unite-fixe">${esc(t.unite || t.avant.unite || '')}</span></div>`)}
         </div>`;
           }
-          return `
+          // Version 62 : unité choisie par boutons, sans présélection (avant : « m2 » affiché mais pas enregistré) ;
+          // la quantité dans la même colonne que les autres lignes.
+          const tete = enteteAuj ? '' : enteteAujourdhui(); enteteAuj = true;
+          return `${tete}
         <div class="ligne tache-nouvelle${aSaisi(t.quantite) ? ' saisie' : ''}">
           ${nouvelle}
-          <div class="qte-ligne"><span class="sous">Fait aujourd'hui</span>
-            <div class="qte-unite"><div class="qte">${champ}</div>
-              <select aria-label="Unité" data-ch="${i}" data-av="${k}" data-k="unite">${['m2', 'ml', 'm3', 't', 'un'].map(u => `<option ${u === (t.unite || 'm2') ? 'selected' : ''}>${u}</option>`).join('')}</select></div>
+          <div class="choix unites" style="--n:${UNITES_TACHE.length}" role="group" aria-label="Unité">
+            ${UNITES_TACHE.map(u => `<button type="button" data-unite="${i}-${k}" data-v="${u}" aria-pressed="${t.unite === u}">${u}</button>`).join('')}
           </div>
+          ${ligneEqNouveau(t.quantite, `<div class="qte">${champ}<span class="unite-fixe">${esc(t.unite || '')}</span></div>`)}
         </div>`;
         }
         const v = Number(t.pourcentage) || 0, avant = connue ? Number(t.avant.pourcentage) || 0 : 0;
@@ -1760,7 +1771,7 @@ ROUTES.rapport = async function (param) {
 
       <h2>Matériaux utilisés</h2>
       <p class="discret aide-avancement">Ne remplis que ce qui a servi aujourd'hui.</p>
-      ${c.materiaux.some(m => m.avant) ? enteteAujourdhui() : ''}
+      ${c.materiaux.length ? enteteAujourdhui() : ''}
       ${c.materiaux.map((m, k) => {
         // Version 58 : un matériau déjà déclaré sur ce chantier garde son nom et son unité (celle du référentiel), sans « × ».
         // Version 62 : « déjà + aujourd'hui = total » sur la ligne, l'unité dans le champ du jour.
@@ -1899,7 +1910,7 @@ ROUTES.rapport = async function (param) {
         // Version 62 : retaper efface le choix ET la quantité, et la ligne de quantité disparaît.
         if (m.materiau) {
           m.materiau = ''; m.unite = ''; m.quantite = ''; delete el.dataset.choisi;
-          const ligne = el.closest('.materiau-nouveau'), q = ligne.querySelector('.qte-ligne');
+          const ligne = el.closest('.materiau-nouveau'), q = ligne.querySelector('.eq');
           if (q) q.remove();
           ligne.classList.remove('saisie');
         }
@@ -1925,6 +1936,13 @@ ROUTES.rapport = async function (param) {
     });
     $$('[data-mat]').forEach(brancherMat);
     $$('[data-k="remarques"]').forEach(el => el.oninput = () => { e.chantiers[+el.dataset.ch].remarques = el.value; });
+    // Version 62 : unité d'une tâche nouvelle en quantité, mise à jour sur place (boutons et unité dans le champ).
+    $$('[data-unite]').forEach(b => b.onclick = () => {
+      const [i, k] = b.dataset.unite.split('-').map(Number);
+      e.chantiers[i].avancement[k].unite = b.dataset.v;
+      $$(`[data-unite="${i}-${k}"]`).forEach(x => x.setAttribute('aria-pressed', String(x === b)));
+      const u = b.closest('.ligne').querySelector('.unite-fixe'); if (u) u.textContent = b.dataset.v;
+    });
     $$('[data-mode]').forEach(b => b.onclick = () => {
       const [i, k] = b.dataset.mode.split('-').map(Number);
       e.chantiers[i].avancement[k].mode = b.dataset.v; dessiner();
@@ -1945,7 +1963,7 @@ ROUTES.rapport = async function (param) {
       e.chantiers[+b.dataset.ajoutTache].avancement.push({ tache: '', pourcentage: 0, mode: 'POURCENTAGE' }); dessiner();
     });
     $$('[data-ajout-mat]').forEach(b => b.onclick = () => {
-      // Version 61 : la ligne arrive vide, le champ de recherche ouvert (Fréquents puis familles) ; plus de matériau imposé.
+      // Version 61 : la ligne arrive vide, le champ de recherche ouvert (version 62 : Fréquents puis tous les matériaux) ; plus de matériau imposé.
       const i = +b.dataset.ajoutMat, c = e.chantiers[i];
       c.materiaux.push({ materiau: '', quantite: '', unite: '' }); dessiner();
       const champ = $(`[data-cherche="${i}-${c.materiaux.length - 1}"]`); if (champ) champ.focus();
@@ -2021,6 +2039,9 @@ ROUTES.rapport = async function (param) {
       const vide = c.avancement.find(t => !String(t.tache).trim());
       if (vide) { e.ouvert = e.chantiers.indexOf(c); dessiner(); $('#erreur').textContent = `${c.libelle} : donne un nom à chaque tâche, ou retire-la.`; return; }
       // Version 57 : une tâche connue en quantité peut rester vide (rien fait ce jour-là) ; une nouvelle, non.
+      // Version 62 : une tâche nouvelle en quantité doit avoir son unité (plus de « m2 » par défaut).
+      const sansUnite = c.avancement.find(t => t.mode === 'QUANTITE' && !t.avant && !UNITES_TACHE.includes(t.unite));
+      if (sansUnite) { e.ouvert = e.chantiers.indexOf(c); dessiner(); $('#erreur').textContent = `${c.libelle} : choisis l'unité de « ${sansUnite.tache} ».`; return; }
       const sansQuantite = c.avancement.find(t => t.mode === 'QUANTITE' && !t.avant && !(Number(String(t.quantite).replace(',', '.')) > 0));
       if (sansQuantite) { e.ouvert = e.chantiers.indexOf(c); dessiner(); $('#erreur').textContent = `${c.libelle} : indique la quantité faite pour « ${sansQuantite.tache} ».`; return; }
       const cles = c.avancement.map(t => String(t.tache).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ').trim());

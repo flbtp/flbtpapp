@@ -168,7 +168,6 @@ input[type=search] { -webkit-appearance: none; appearance: none; }
 .rapport-chantier .nom { font-weight: 600; line-height: 1.25; overflow-wrap: anywhere; }
 /* Nom d'un matériau repris ou d'une tâche connue : c'est lui qu'on cherche dans la liste, les chiffres passent en retrait. */
 .rapport-chantier .ligne-cumul .nom, .rapport-chantier .tache-pct .nom { font-size: 18px; font-weight: 700; color: var(--encre); }
-.qte-ligne { display: grid; grid-template-columns: minmax(0, 1fr) 116px; gap: 10px; align-items: center; }
 /* Ligne à cumul : « déjà + aujourd'hui = total » en colonnes alignées d'une ligne à l'autre, largeur limitée (écran large). */
 .eq, .eq-tete { display: grid; grid-template-columns: minmax(0, 1fr) 10px 96px 10px minmax(0, 1fr); gap: 6px; align-items: center; max-width: 400px; }
 .eq-tete { padding: 0 10px 0 17px; margin-bottom: -6px; max-width: 427px; }   /* 400 + marges de la ligne (12 + liseré 5, 10) */
@@ -178,6 +177,7 @@ input[type=search] { -webkit-appearance: none; appearance: none; }
 .eq .deja { display: flex; flex-direction: column; line-height: 1.15; min-width: 0; }
 .eq .deja b { font-size: 16px; font-weight: 500; color: var(--gris); font-variant-numeric: tabular-nums; }
 .eq .deja small { font-size: 12px; color: #8A8589; }
+.eq .deja small.nouveau { color: var(--encre); font-weight: 700; text-transform: uppercase; letter-spacing: .04em; font-size: 11px; }
 .eq .op { text-align: center; font-weight: 700; color: var(--gris); }
 .eq .somme { font-weight: 500; font-size: 16px; color: var(--gris); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .eq .somme.vide { color: #B4AFA4; font-weight: 600; }
@@ -187,12 +187,8 @@ input[type=search] { -webkit-appearance: none; appearance: none; }
 /* Version 58 : unité du référentiel, affichée, jamais choisie (version 62 : dans le champ). */
 .unite-fixe { font-weight: 600; color: var(--gris); white-space: nowrap; }
 .qte .unite-fixe { position: absolute; right: 10px; font-size: 15px; pointer-events: none; }
-.tag-nouveau { justify-self: start; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; background: var(--encre); color: #fff; border-radius: 5px; padding: 2px 7px; }
-/* Tâche nouvelle en quantité : quantité et liste d'unités côte à côte. */
-.tache-nouvelle .qte-ligne { grid-template-columns: minmax(0, 1fr); gap: 6px; }
-.qte-unite { display: grid; grid-template-columns: minmax(0, 1fr) 78px; gap: 8px; }
-.qte-unite .qte input[type=text] { padding-right: 10px; }
-.qte-unite select { padding: 0 6px; }
+/* Tâche nouvelle en quantité : unité choisie par boutons (sans présélection), quantité dans la colonne des autres lignes. */
+.choix.unites button { min-height: 40px; font-size: 15px; }
 /* Tâche en % : état d'avant (encre), gain du jour (jaune) ou recul (rouge moyen). */
 .pct-tete { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .pct-val { white-space: nowrap; }
