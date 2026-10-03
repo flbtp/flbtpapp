@@ -362,7 +362,7 @@ button.compteur { cursor: pointer; }
 .bande-jours .avenir, .bande-jours .hors { color: var(--gris); }
 .bande-jours [aria-current="true"] { box-shadow: inset 0 -4px 0 var(--encre); }
 .jour.justifiee { background: var(--bleu-pale); color: var(--bleu); }   /* version 51 : absences et jours chômés, distincts des jours à venir */
-.mini-aide { font-size: 13px; margin-top: -12px; text-align: center; }
+.mini-aide { font-size: 13px; margin-top: 0; text-align: center; }   /* version 64 : plus de -12px, la phrase chevauchait le bas des boutons */
 [hidden] { display: none !important; }
 
 /* ------------------------------------------------------------------ version 35 */
