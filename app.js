@@ -547,6 +547,7 @@ const MESSAGE_BOUCLE = 'Ce jour est bouclé : adresse-toi au bureau pour toute c
 // Version 52 : jour d'avant la mise en service (réglage CONTROLES_DEPUIS) — rien à saisir dans l'appli.
 // Version 64 : on ne saisit soi-même que si l'on est au planning du jour (même texte que le serveur).
 const MESSAGE_PAS_AU_PLANNING = "Tu n'es pas au planning ce jour-là : demande à ton chef de t'ajouter à son équipe, ou au bureau de saisir ta journée.";
+const MESSAGE_SANS_PLANNING = 'Pas de planning ce jour-là : si tu as travaillé, vois avec le bureau.';
 const MESSAGE_AVANT_SERVICE = "Jour d'avant la mise en service de l'appli : rien à saisir ici.";
 const jourDeSemaine = (a, date) => ((a && a.semaine) || []).find(x => x.date === date) || {};
 /**
@@ -677,7 +678,7 @@ function dessinerAccueil(a, session) {
   if (avant) action = `<div class="alerte gris">${ICONES.horloge}<span>L'application démarre le ${esc(dateLongue(a.avantService).toLowerCase())}. D'ici là, continue les carnets papier.</span></div>`;
   else if (!j && a.justification) action = `<div class="alerte jaune">${ICONES.attention}<span>${esc(messageAbsence(a.justification))}</span></div>`;
   else if (boucle && !(j && j.enAttente)) action = `<div class="alerte gris">${ICONES.cadenas}<span>${j ? `Journée bouclée : ${esc(j.hEmbauche)}–${esc(j.hPause)} · ${esc(j.hReprise)}–${esc(j.hDebauche)}. Pour toute correction, adresse-toi au bureau.` : esc(MESSAGE_BOUCLE)}</span></div>`;
-  else if (!j && !bloc) action = `<div class="alerte jaune">${ICONES.attention}<span>${esc(MESSAGE_PAS_AU_PLANNING)}</span></div>`;   // version 64
+  else if (!j && !bloc) action = '';           // version 64 : pas de saisie ; l'encadré du haut dit pourquoi (un seul message)
   else if (!j) action = `<button class="btn btn-principal" type="button" onclick="aller('/saisie/${a.date}')">Saisir ma journée</button>`;
   else if (j.enAttente) action = `<div class="alerte jaune">${ICONES.horloge}<span>Journée gardée sur ton téléphone : ${esc(j.hEmbauche)}–${esc(j.hPause)} · ${esc(j.hReprise)}–${esc(j.hDebauche)}. Elle partira dès que possible.</span></div>`;
   else if (j.modifiable && !bloc) action = `<div class="alerte vert">${ICONES.ok}<span>Journée enregistrée : ${esc(j.hEmbauche)}–${esc(j.hPause)} · ${esc(j.hReprise)}–${esc(j.hDebauche)}. Pour une correction, vois avec ton chef ou le bureau.</span></div>`;
@@ -712,9 +713,9 @@ function dessinerAccueil(a, session) {
         ${bloc.taches ? `<div class="sep taches-jour"><span class="sous">Tâches du jour</span><p class="a-faire">${esc(bloc.taches)}</p></div>` : ''}
         ${eqj ? equipeAccueil(eqj) : ''}
       </section>`
-      : `<section class="bloc"><p>${a.planningTrouve ? "Tu n'es pas au planning aujourd'hui." : "Pas de planning pour aujourd'hui."}</p>
-         <p class="discret">${a.planningTrouve ? 'Si tu as travaillé, ton chef peut t\'ajouter à son équipe, ou le bureau saisir ta journée.'
-           : 'Sans planning, personne ne saisit ce jour-là : vois avec le bureau.'}</p>
+      : `<section class="bloc"><p>${a.planningTrouve ? "Tu n'es pas au planning aujourd'hui." : "Pas de planning aujourd'hui."}</p>
+         <p class="discret">${a.planningTrouve ? 'Si tu as travaillé, demande à ton chef de t\'ajouter à son équipe, ou au bureau de saisir ta journée.'
+           : 'Si tu as travaillé, vois avec le bureau.'}</p>
          ${eqj && eqj.membres.length > 1 ? equipeAccueil(eqj) : ''}</section>`}
     ${a.journee && bloc && a.chefDuJour && a.chefDuJour !== bloc.responsable && a.chefDuJour !== session.personne
       ? `<div class="alerte jaune">${ICONES.attention}<span>D'après tes chantiers, tu es aujourd'hui dans l'équipe de <b>${esc(a.chefDuJour)}</b> : c'est lui qui valide ta journée.</span></div>` : ''}
@@ -855,7 +856,7 @@ function champDeplacementBl(b, k, chantiers, modifiable) {
   return `${champChoix(`data-bl-deplacer="${k}"`, { valeur: actuel, affiche: nomCourt(actuel), label: 'Chantier de ce BL',
       placeholder: 'Tape un chantier', desactive: !(modifiable && !(e && e.etat === 'encours')) })}
     <button class="btn btn-sombre btn-petit" type="button" data-bl-ranger="${k}" hidden>Ranger ici</button>
-    ${modifiable ? etat : '<span class="discret">Jour bouclé</span>'}`;
+    ${modifiable ? etat : `<span class="discret">${b.renta ? 'Déjà en rentabilité' : 'Jour bouclé'}</span>`}`;   // version 64 : BL envoyé en rentabilité
 }
 /**
  * Branche les champs et boutons de champDeplacementBl ; `bls` : les BL dans l'ordre des indices k ; `chantiers` : ceux
@@ -1015,7 +1016,9 @@ ROUTES.planning = async function (param) {
       </div>
       ${horsReseau ? `<div class="alerte jaune">${ICONES.attention}<span>${g ? 'Pas de réseau : dernier planning chargé sur ce téléphone.' : "Pas de réseau, et ce planning n'a jamais été chargé sur ce téléphone."}</span></div>` : ''}
       ${!g ? '' : g.avantService ? `<section class="bloc"><p>Planning visible à partir du ${esc(dateLongue(g.avantService).toLowerCase())}, jour de démarrage de l'appli.</p></section>`
-        : !g.trouve ? '<section class="bloc"><p>Planning pas encore disponible pour ce jour.</p><p class="discret">Le bureau le prépare : reviens plus tard.</p></section>'
+        // Version 64 : aujourd'hui sans planning (un samedi…), il n'y en aura pas ; le prochain jour ouvré, il est peut-être en préparation.
+        : !g.trouve ? (date === auj ? '<section class="bloc"><p>Pas de planning aujourd\'hui.</p></section>'
+          : '<section class="bloc"><p>Planning pas encore disponible pour ce jour.</p><p class="discret">Le bureau le prépare : reviens plus tard.</p></section>')
         : !g.blocs.length ? '<section class="bloc"><p>Aucune équipe au planning ce jour-là.</p></section>'
         : g.blocs.map(carte).join('')}
       ${g && g._recu ? `<p class="pl-maj">Chargé à ${new Date(g._recu).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}</p>` : ''}`;
@@ -1415,7 +1418,7 @@ ROUTES.saisie = async function (date) {
   if (jourDeSemaine(a, date).boucle) { toast(MESSAGE_BOUCLE); return aller(accueilPerso()); }
   if (a && a.journee && !a.journee.modifiable) { toast('Journée déjà validée.'); return aller(accueilPerso()); }
   // Version 64 : pas au planning de ce jour (réponse du serveur seulement : `planningTrouve` en fait partie).
-  if (a && a.planningTrouve !== undefined && !a.bloc) { toast(MESSAGE_PAS_AU_PLANNING); return aller(accueilPerso()); }
+  if (a && a.planningTrouve !== undefined && !a.bloc) { toast(a.planningTrouve ? MESSAGE_PAS_AU_PLANNING : MESSAGE_SANS_PLANNING); return aller(accueilPerso()); }
   const absence = a && !a.journee && (a.justification || ((a.semaine || []).find(x => x.date === date) || {}).justification);
   if (absence) { toast(messageAbsence(absence)); return aller(accueilPerso()); }
 
@@ -1677,7 +1680,7 @@ function voirPhoto(titre, charger, deplacer) {
   if (deplacer) {
     // Version 55 : même mécanique que « Mes BL » : liste (version 63 : recherche), « Ranger ici », file d'attente, état affiché ici.
     const zone = voile.querySelector('#blDeplacer');
-    const bl = { id: deplacer.id, chantier: deplacer.actuel };
+    const bl = { id: deplacer.id, chantier: deplacer.actuel, renta: !!deplacer.renta };
     let chantiers = null;
     const dessinerChoix = () => {
       if (!document.body.contains(voile) || !chantiers) return;
@@ -2100,7 +2103,8 @@ ROUTES.rapport = async function (param) {
       const bl = e.chantiers[ci].bl[k];
       voirPhoto(e.chantiers[ci].libelle, () => appel('photo_bl', { date, auNomDe, id: bl.id }).then(r => r.image), {
         id: bl.id, date, actuel: e.chantiers[ci].libelle,
-        modifiable: !d.verrouille,                 // version 57 : jour bouclé, liste grisée (« Jour bouclé »)
+        modifiable: !d.verrouille && !bl.renta,    // version 57 : jour bouclé, liste grisée (« Jour bouclé ») ; version 64 : « Déjà en rentabilité »
+        renta: !!bl.renta,
         // Version 52 : le BL change de chantier ; sous un autre chantier de ce rapport, il y passe, sinon il le quitte.
         apres: chantier => {
           e.chantiers.forEach(c => { c.bl = c.bl.filter(x => x !== bl); });
