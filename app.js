@@ -12,7 +12,7 @@
  * Numéro affiché sur l'écran de connexion et l'écran bureau (plus sur l'accueil des gars : version 48).
  * À augmenter à chaque dépôt de nouveaux fichiers sur GitHub : c'est le seul numéro à changer.
  */
-const VERSION_APPLI = '64';
+const VERSION_APPLI = '65';
 
 // ---------------------------------------------------------------------------
 // Petits outils
@@ -65,6 +65,18 @@ function minutes(hhmm) {
 }
 
 function duree(min) { return `${Math.floor(min / 60)} h ${String(min % 60).padStart(2, '0')}`; }
+
+/*
+ * Version 65 : le total affiché d'une journée = horaires + tâches avant chantier (le temps payé hors trajet,
+ * comme le Suivi RH : H + L). La colonne TOTAL de JOURNEES reste le temps des seuls horaires : c'est sur
+ * elle que se font la répartition entre chantiers, les contrôles et la rentabilité.
+ */
+function minutesTaches(v) { const n = Math.round(Number(v)); return n > 0 ? n : 0; }
+const hhmmTexte = m => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+/** Journée reçue du serveur : minutes affichées (horaires + tâches avant chantier). */
+const minutesAffichees = j => (minutes(j.total) || 0) + minutesTaches(j.tachesSuppMin);
+/** « dont 30 min avant chantier (chargement GNT 18 t) », ou rien sans tâches. */
+const texteDontTaches = (min, quoi) => min ? `dont ${min} min avant chantier${quoi ? ` (${quoi})` : ''}` : '';
 
 let minuteurToast;
 function toast(texte) {
@@ -1141,6 +1153,9 @@ function groupesAjoutChantier(e, ref) {
  * options.chantiersPossibles : les chantiers du chef, à cocher (intérimaire : au moins un) au lieu de
  * la liste de tous les chantiers. options.nomVerrouille : correction d'un intérimaire, son nom ne change pas.
  */
+/** Version 65 : minutes de tâches avant chantier en cours de saisie (0 sans tâches ou « Autre » pas rempli). */
+function tachesSaisies(e) { return e.avecTaches ? minutesTaches(e.tachesSuppMin) : 0; }
+
 function formulaireJournee(e, ref, interimaire, options = {}) {
   const total = (() => {
     const [a, b, c, d] = [e.hEmbauche, e.hPause, e.hReprise, e.hDebauche].map(minutes);
@@ -1204,7 +1219,8 @@ function formulaireJournee(e, ref, interimaire, options = {}) {
         ${[['hEmbauche', 'Embauche'], ['hPause', 'Pause repas'], ['hReprise', 'Reprise'], ['hDebauche', 'Débauche']]
           .map(([k, lib]) => `<div class="champ"><label for="${k}" class="sous">${lib}</label><input id="${k}" type="time" value="${esc(e[k])}" data-champ="${k}"></div>`).join('')}
       </div>
-      <div class="total"><span class="discret">Total</span><b id="total">${total === null ? '—' : duree(total)}</b></div>
+      <div class="total"><span class="discret">Total</span><b id="total">${total === null ? '—' : duree(total + tachesSaisies(e))}</b></div>
+      <p class="discret" id="total-detail" ${total !== null && tachesSaisies(e) ? '' : 'hidden'}>${total === null ? '' : texteDontTaches(tachesSaisies(e))}</p>
     </section>
 
     <section class="bloc">
@@ -1242,7 +1258,9 @@ function brancherFormulaire(e, redessiner, ref) {
       const bon = ![a, b, c, d].some(x => x === null) && a < b && b <= c && c < d;
       const total = bon ? (b - a) + (d - c) : null;
       const t = $('#total');
-      if (t) t.textContent = total === null ? '—' : duree(total);
+      if (t) t.textContent = total === null ? '—' : duree(total + tachesSaisies(e));
+      const td = $('#total-detail');
+      if (td) { td.textContent = total === null ? '' : texteDontTaches(tachesSaisies(e)); td.hidden = total === null || !tachesSaisies(e); }
       // La répartition dépend du total : elle doit suivre le changement d'horaires, sans redessiner
       // l'écran, ce qui interromprait la saisie en cours.
       if (total !== null) majRepartition(e, total);
@@ -1513,7 +1531,7 @@ ROUTES.envoye = function () {
       <div class="resume"><span>Jour</span><span>${esc(dateLongue(e.date))}</span></div>
       <div class="resume"><span>Chantier</span><span>${esc(e.chantiers.join(', '))}</span></div>
       <div class="resume"><span>Horaires</span><span>${esc(e.hEmbauche)}–${esc(e.hPause)} · ${esc(e.hReprise)}–${esc(e.hDebauche)}</span></div>
-      <div class="resume"><span>Total</span><span>${duree((b - a) + (f - c))}</span></div>
+      <div class="resume"><span>Total</span><span>${duree((b - a) + (f - c) + tachesSaisies(e))}${tachesSaisies(e) ? `<br><span class="discret">${esc(texteDontTaches(tachesSaisies(e)))}</span>` : ''}</span></div>
       <div class="resume"><span>Trajet</span><span>${esc(e.trajet)}</span></div>
       <div class="resume"><span>Tâches avant chantier</span><span>${e.avecTaches ? esc(e.tachesSuppMin) + ' min' : 'Non'}</span></div>
       <div class="resume"><span>Repas</span><span>${esc({ AUCUN: 'Aucun', PANIER: 'Panier', RESTAURANT: 'Restaurant' }[e.repas])}</span></div>
@@ -2234,8 +2252,8 @@ ROUTES.equipe = async function (date) {
       <section class="bloc" ${aValider ? 'style="border:2px solid var(--jaune)"' : ''}>
         <div class="ligne-tete"><span>${esc(m.personne)}${m.estMoi ? role() : ''}${m.interimaire ? ' <span class="discret">(intérim)</span>' : ''}${m.origine ? ` <span class="discret">(${esc(m.origine)})</span>` : ''}</span>
           <span class="pastille ${pastille[1]}">${esc(pastille[0])}</span></div>
-        <p>${esc(j.hEmbauche)}–${esc(j.hPause)} · ${esc(j.hReprise)}–${esc(j.hDebauche)} · <b>${esc(j.total)}</b></p>
-        <p class="discret">${esc([j.trajet, j.tachesSuppMin ? `${j.tachesSuppMin} min ${j.tachesSupp}` : '', { AUCUN: 'Pas de repas', PANIER: 'Panier', RESTAURANT: 'Restaurant' }[j.repas]].filter(Boolean).join(' — '))}</p>
+        <p>${esc(j.hEmbauche)}–${esc(j.hPause)} · ${esc(j.hReprise)}–${esc(j.hDebauche)} · <b>${esc(hhmmTexte(minutesAffichees(j)))}</b></p>
+        <p class="discret">${esc([j.trajet, texteDontTaches(minutesTaches(j.tachesSuppMin), j.tachesSupp), { AUCUN: 'Pas de repas', PANIER: 'Panier', RESTAURANT: 'Restaurant' }[j.repas]].filter(Boolean).join(' — '))}</p>
 
         ${bureau}
         ${!j.parBureau && !aValider && j.statut === 'VALIDEE_CHEF' ? (m.estMoi
@@ -2594,8 +2612,8 @@ ROUTES.bureau = async function (date) {
     return `
       <div class="ligne e-${etat}" data-ligne="${esc(x.personne)}">
         <div class="ligne-tete"><span>${nomAffiche}</span><span class="pastille p-${etat}">${esc(libelle)}</span></div>
-        ${j ? `<p class="heures">${esc(j.hEmbauche)}–${esc(j.hPause)} · ${esc(j.hReprise)}–${esc(j.hDebauche)} · <b>${esc(j.total)}</b>
-               <span class="discret">— ${esc([j.trajet, { AUCUN: 'sans repas', PANIER: 'panier', RESTAURANT: 'restaurant' }[j.repas], j.zone ? 'zone ' + j.zone : 'pas de zone'].filter(Boolean).join(', '))}</span>
+        ${j ? `<p class="heures">${esc(j.hEmbauche)}–${esc(j.hPause)} · ${esc(j.hReprise)}–${esc(j.hDebauche)} · <b>${esc(hhmmTexte(minutesAffichees(j)))}</b>
+               <span class="discret">— ${esc([texteDontTaches(minutesTaches(j.tachesSuppMin), j.tachesSupp), j.trajet, { AUCUN: 'sans repas', PANIER: 'panier', RESTAURANT: 'restaurant' }[j.repas], j.zone ? 'zone ' + j.zone : 'pas de zone'].filter(Boolean).join(', '))}</span>
                ${j.repartition ? `<br><span class="discret">Heures : ${esc(j.repartition.split(' ; ').map(nomCourt).join(' ; '))}</span>` : ''}</p>`
           : x.justification ? `<p class="heures">${x.justification.type === 'JOUR_NON_TRAVAILLE' ? 'Jour chômé' : 'Justifiée'} : ${esc(x.justification.motif)}</p>` : ''}
         ${x.sansOngletRh ? '<p class="discret mention-rh">Pas d\'onglet RH : heures non reportées dans le Suivi RH</p>' : ''}
@@ -2654,7 +2672,7 @@ ROUTES.bureau = async function (date) {
       rapports: d.chantiers.filter(c => !c.rapport.envoye && c.journees.some(x => x.journee)).length,
       repas: d.chantiers.filter(c => c.rapport.ecartRepas).length,
       autres: (d.points || []).filter(p => ['SANS_ONGLET_RH', 'ZONE_INCONNUE'].includes(p.type)).length,
-      minutes: lignes.reduce((m, x) => m + (x.journee ? (minutes(x.journee.total) || 0) : 0), 0),
+      minutes: lignes.reduce((m, x) => m + (x.journee ? minutesAffichees(x.journee) : 0), 0),   // version 65 : tâches avant chantier comprises
     };
     const caseR = (lib, v, ko, ok) => `<div class="case-r ${ko && v ? 'ko' : ok && v ? 'ok' : ''}">${lib}<b>${v}</b></div>`;
     const resume = j.etat === 'REGLER' ? [
