@@ -12,7 +12,7 @@
  * Numéro affiché sur l'écran de connexion et l'écran bureau (plus sur l'accueil des gars : version 48).
  * À augmenter à chaque dépôt de nouveaux fichiers sur GitHub : c'est le seul numéro à changer.
  */
-const VERSION_APPLI = '65';
+const VERSION_APPLI = '66';
 
 // ---------------------------------------------------------------------------
 // Petits outils
@@ -542,14 +542,33 @@ function confirmer(titre, texte, libelleOui) {
     voile.querySelector('[data-oui]').focus();
   });
 }
+/**
+ * Version 66 : valider une journée du jour avant l'heure des contrôles (réglage CONTROLES_HEURE, 18 h par défaut,
+ * transmis avec les référentiels) empêche son auteur de la modifier : on demande confirmation, sans bloquer.
+ * Heure du téléphone. Sert au chef (« Valider », « Tout valider ») et au bureau (« Valider » de l'écran du jour).
+ */
+function heureControles() {
+  const h = Number((((stock.lire('ref') || {}).parametres) || {}).controlesHeure);
+  return Number.isInteger(h) && h >= 0 && h <= 23 ? h : 18;
+}
+function confirmerValidationTot(date, personnes) {
+  const maintenant = new Date();
+  if (date !== aujourdhui() || !personnes.length || maintenant.getHours() >= heureControles()) return Promise.resolve(true);
+  const heure = `${maintenant.getHours()} h ${String(maintenant.getMinutes()).padStart(2, '0')}`;
+  const qui = personnes.length > 1 ? `ces ${personnes.length} personnes ne pourront plus modifier leur journée`
+    : `${personnes[0]} ne pourra plus modifier sa journée`;
+  return confirmer(`Il n'est que ${heure}`, `Une fois ${personnes.length > 1 ? 'validées' : 'validée'}, ${qui}. Valider quand même ?`, 'Valider quand même');
+}
 async function demanderDeconnexion() {
   if (await confirmer('Se déconnecter ?', 'Il faudra ressaisir ton code à la prochaine ouverture.', 'Se déconnecter')) {
     stock.effacer('dernierNom'); deconnecter();
   }
 }
 
+// Version 66 : une journée pas encore validée est « En cours » (« Envoyée » avant) ; celle d'un chef, validée d'office
+// mais encore modifiable, aussi (voir casesSemaine) : le vert et la coche sont réservés aux journées vraiment validées.
 const LIBELLES_STATUT = {
-  SAISIE: ['Envoyée', 'saisie'], VALIDEE_CHEF: ['Validée', 'ok'],
+  SAISIE: ['En cours', 'saisie'], VALIDEE_CHEF: ['Validée', 'ok'],
   VALIDEE_BUREAU: ['Validée', 'ok'], EXPORTEE: ['Validée', 'ok'], NON_SAISIE: ['À saisir', 'a-faire'], A_VENIR: ['—', ''],
   JUSTIFIEE: ['Justifiée', 'justifiee'], WEEKEND: ['—', 'weekend'],
   BOUCLEE: ['Bouclée', 'bouclee'],
@@ -662,7 +681,8 @@ function casesSemaine(semaine) {
           // sur la page de ce jour ; une absence montre son motif abrégé (CP, Maladie, Férié…).
           const chef = s.chef && !s.boucle && s.statut !== 'JUSTIFIEE' ? s.chef : null;
           const [lib0, cls] = chef ? (chef.aFaire ? ['À faire', 'chef-a-faire'] : ['Fait', 'ok'])
-            : LIBELLES_STATUT[s.boucle && s.statut !== 'JUSTIFIEE' ? 'BOUCLEE' : s.weekend && s.statut === 'NON_SAISIE' ? 'WEEKEND' : s.statut] || ['—', ''];
+            : LIBELLES_STATUT[s.boucle && s.statut !== 'JUSTIFIEE' ? 'BOUCLEE' : s.weekend && s.statut === 'NON_SAISIE' ? 'WEEKEND'
+              : s.statut === 'VALIDEE_CHEF' && s.modifiable === true ? 'SAISIE' : s.statut] || ['—', ''];
           const lib = s.statut === 'JUSTIFIEE' && s.justification ? s.justification.court : lib0;
           // Version 49 : un jour bouclé (ou que le serveur dit non modifiable) ne s'ouvre plus, même pas saisi.
           const cliquable = !s.boucle && s.modifiable !== false && (['NON_SAISIE', 'SAISIE'].includes(s.statut) || s.modifiable === true);
@@ -693,9 +713,12 @@ function dessinerAccueil(a, session) {
   else if (!j && !bloc) action = '';           // version 64 : pas de saisie ; l'encadré du haut dit pourquoi (un seul message)
   else if (!j) action = `<button class="btn btn-principal" type="button" onclick="aller('/saisie/${a.date}')">Saisir ma journée</button>`;
   else if (j.enAttente) action = `<div class="alerte jaune">${ICONES.horloge}<span>Journée gardée sur ton téléphone : ${esc(j.hEmbauche)}–${esc(j.hPause)} · ${esc(j.hReprise)}–${esc(j.hDebauche)}. Elle partira dès que possible.</span></div>`;
-  else if (j.modifiable && !bloc) action = `<div class="alerte vert">${ICONES.ok}<span>Journée enregistrée : ${esc(j.hEmbauche)}–${esc(j.hPause)} · ${esc(j.hReprise)}–${esc(j.hDebauche)}. Pour une correction, vois avec ton chef ou le bureau.</span></div>`;
-  else if (j.modifiable) action = `<div class="alerte vert">${ICONES.ok}<span>${j.statut === 'VALIDEE_CHEF' ? 'Journée validée' : 'Journée envoyée'} : ${esc(j.hEmbauche)}–${esc(j.hPause)} · ${esc(j.hReprise)}–${esc(j.hDebauche)}</span></div>
-    <button class="btn btn-clair btn-petit" type="button" onclick="aller('/saisie/${a.date}')">Corriger ma journée</button>`;
+  // Version 66 : tant qu'elle n'est pas validée (par le chef, ou par le bureau pour la journée d'un chef, validée d'office
+  // mais encore modifiable), la journée est « en cours » : bandeau jaune, horloge ; le vert reste aux journées validées.
+  else if (j.modifiable && !bloc) action = `<div class="alerte jaune">${ICONES.horloge}<span>Journée en cours : ${esc(j.hEmbauche)}–${esc(j.hPause)} · ${esc(j.hReprise)}–${esc(j.hDebauche)}. Pour une modification, vois avec ton chef ou le bureau.</span></div>`;
+  else if (j.modifiable) action = `<div class="alerte jaune">${ICONES.horloge}<span>Journée en cours : ${esc(j.hEmbauche)}–${esc(j.hPause)} · ${esc(j.hReprise)}–${esc(j.hDebauche)}. ${j.statut === 'VALIDEE_CHEF'
+      ? 'Tu peux la modifier jusqu\'à la validation du bureau.' : 'Tu peux la modifier jusqu\'à ce que ton chef la valide.'}</span></div>
+    <button class="btn btn-clair btn-petit" type="button" onclick="aller('/saisie/${a.date}')">Modifier ma journée</button>`;
   else if (j.parBureau && a.estResponsable) action = `<div class="alerte vert">${ICONES.ok}<span>Journée validée par le bureau. Pour la modifier, adresse-toi au bureau.</span></div>`;
   else action = `<div class="alerte vert">${ICONES.ok}<span>Journée validée. Pour une correction, vois avec ton chef ou le bureau.</span></div>`;
 
@@ -787,7 +810,7 @@ ROUTES.jour = async function (date) {
   if (!toujoursIci()) return;
   const j = a.journee;
   const s = jourDeSemaine(a, date);
-  const maJournee = s.boucle ? '' : j && j.modifiable ? `<button class="btn btn-clair btn-petit" type="button" id="maJournee">Ma journée : ${esc(j.hEmbauche)}–${esc(j.hDebauche)}, corriger</button>`
+  const maJournee = s.boucle ? '' : j && j.modifiable ? `<button class="btn btn-clair btn-petit" type="button" id="maJournee">Ma journée : ${esc(j.hEmbauche)}–${esc(j.hDebauche)}, en cours — modifier</button>`
     : !j && !a.justification ? '<button class="btn btn-principal btn-petit" type="button" id="maJournee">Saisir ma journée</button>'
     : j ? `<p class="discret">Ma journée : ${esc(j.hEmbauche)}–${esc(j.hPause)} · ${esc(j.hReprise)}–${esc(j.hDebauche)}, validée.</p>` : '';
   APP().innerHTML = `
@@ -1449,7 +1472,7 @@ ROUTES.saisie = async function (date) {
         <div><h1>Ma journée</h1><p class="discret">${esc(dateLongue(date))}</p></div>
       </div>
       ${formulaireJournee(e, ref, false)}
-      <div class="pied"><button class="btn btn-principal" type="button" id="envoyer">Envoyer ma journée</button></div>`;
+      <div class="pied"><button class="btn btn-principal" type="button" id="envoyer">Enregistrer ma journée</button></div>`;
     brancherFormulaire(e, dessiner, ref);
     $('#envoyer').onclick = soumettre;
     window.scrollTo(0, y);
@@ -1457,7 +1480,7 @@ ROUTES.saisie = async function (date) {
   const soumettre = async () => {
     const probleme = controler(e, false);
     if (probleme) { $('#erreur').textContent = probleme; $('#erreur').scrollIntoView({ block: 'center' }); return; }
-    const bouton = $('#envoyer'); bouton.disabled = true; bouton.textContent = 'Envoi…';
+    const bouton = $('#envoyer'); bouton.disabled = true; bouton.textContent = 'Enregistrement…';
     try {
       const r = await envoyer('enregistrer_journee', donneesJournee(e), `Journée du ${dateLongue(date)}`);
       stock.ecrire('dernierEnvoi', { etat: e, enAttente: !!r.enAttente,
@@ -1468,7 +1491,7 @@ ROUTES.saisie = async function (date) {
       if (!r.enAttente) oublierJour(date);
       aller('/envoye');
     } catch (err) {
-      bouton.disabled = false; bouton.textContent = 'Envoyer ma journée';
+      bouton.disabled = false; bouton.textContent = 'Enregistrer ma journée';
       $('#erreur').textContent = err.message;
     }
   };
@@ -1516,15 +1539,17 @@ ROUTES.envoye = function () {
   const [a, b, c, f] = [e.hEmbauche, e.hPause, e.hReprise, e.hDebauche].map(minutes);
   const eq = d.equipe || {};
   const moi = (stock.lire('session') || {}).personne;
+  // Version 66 : « Journée enregistrée » (« Journée envoyée » avant) et ce qui reste possible : la modifier jusqu'à la validation.
   const texte = d.enAttente ? "Pas de réseau pour l'instant. Elle partira toute seule dès que le téléphone capte. Tu n'as rien à refaire."
-    : d.valideeDOffice ? "Tu es le chef : elle est validée d'office."
+    : d.valideeDOffice ? "Tu es le chef : tu peux la modifier jusqu'à la validation du bureau."
     : eq.chefDuJour && eq.chefDuJour !== moi ? (d.chefPrevu && eq.chefDuJour !== d.chefPrevu
-      ? `D'après tes chantiers, tu es aujourd'hui dans l'équipe de ${eq.chefDuJour} : c'est lui qui la validera.` : `${eq.chefDuJour} la validera.`)
-    : 'Ton chef la validera.';
+      ? `D'après tes chantiers, tu es aujourd'hui dans l'équipe de ${eq.chefDuJour} : tu peux la modifier jusqu'à ce qu'il la valide.`
+      : `Tu peux la modifier jusqu'à ce que ${eq.chefDuJour} la valide.`)
+    : "Tu peux la modifier jusqu'à ce que ton chef la valide.";
   APP().innerHTML = `
     <div class="centre" style="display:flex;flex-direction:column;gap:14px;margin-top:24px">
-      <div class="rond ${d.enAttente ? '' : 'vert'}">${d.enAttente ? ICONES.horsReseau : ICONES.ok.replace(/18/g, '36')}</div>
-      <h1>${d.enAttente ? 'Journée gardée sur ton téléphone' : 'Journée envoyée'}</h1>
+      <div class="rond">${d.enAttente ? ICONES.horsReseau : ICONES.horloge.replace(/20/g, '36')}</div>
+      <h1>${d.enAttente ? 'Journée gardée sur ton téléphone' : 'Journée enregistrée'}</h1>
       <p class="discret">${esc(texte)}</p>
     </div>
     <section class="bloc">
@@ -2242,7 +2267,9 @@ ROUTES.equipe = async function (date) {
       <section class="bloc"><div class="ligne-tete"><span>${esc(m.personne)}</span><span class="pastille rouge">Pas saisie</span></div>
         <p class="discret">Prévu au planning sur ce chantier, aucune journée reçue.</p>
         <button class="btn btn-clair btn-petit" type="button" data-saisir="${esc(m.personne)}">Saisir sa journée</button></section>`;
+    // Version 66 : sa propre journée, validée d'office mais encore modifiable, est « En cours » (comme sur son accueil).
     const pastille = j.parBureau ? ['Validée bureau', 'vert']
+      : m.estMoi && j.statut === 'VALIDEE_CHEF' ? ['En cours', '']
       : ({ SAISIE: ['À valider', 'attente'], VALIDEE_CHEF: ['Validée', 'vert'],
         VALIDEE_BUREAU: ['Validée bureau', 'vert'], EXPORTEE: ['Validée bureau', 'vert'] }[j.statut] || [j.statut, '']);
     const aValider = !j.parBureau && aValiderStatut(j.statut);
@@ -2257,8 +2284,8 @@ ROUTES.equipe = async function (date) {
 
         ${bureau}
         ${!j.parBureau && !aValider && j.statut === 'VALIDEE_CHEF' ? (m.estMoi
-          // Sa propre journée, validée d'office : il la corrige directement, elle reste validée.
-          ? `<button class="btn btn-clair btn-petit" type="button" onclick="aller('/saisie/${date}')">Corriger ma journée</button>`
+          // Sa propre journée, validée d'office : il la modifie directement, elle reste validée (affichée « En cours »).
+          ? `<button class="btn btn-clair btn-petit" type="button" onclick="aller('/saisie/${date}')">Modifier ma journée</button>`
           : `<button class="btn btn-clair btn-petit" type="button" data-devalider="${esc(m.personne)}">Dévalider pour correction</button>`) : ''}
         ${aValider ? (m.estMoi
             ? `<div class="duo"><button class="btn btn-clair btn-petit" type="button" onclick="aller('/saisie/${date}')">Corriger</button>
@@ -2290,12 +2317,17 @@ ROUTES.equipe = async function (date) {
         <button class="btn btn-vert" type="button" id="toutValider" ${aValider.length ? '' : 'disabled'}>${aValider.length ? `Tout valider (${aValider.length})` : 'Rien à valider'}</button>
       </div>`;
 
-    $$('[data-valider]').forEach(b => b.onclick = () => decider([b.dataset.valider], 'VALIDER'));
+    // Version 66 : avant l'heure des contrôles, confirmation (sauf pour sa propre journée).
+    const moi = (stock.lire('session') || {}).personne;
+    const validerApresConfirmation = async personnes => {
+      if (await confirmerValidationTot(date, personnes.filter(p => p !== moi))) decider(personnes, 'VALIDER');
+    };
+    $$('[data-valider]').forEach(b => b.onclick = () => validerApresConfirmation([b.dataset.valider]));
     $$('[data-devalider]').forEach(b => b.onclick = () => decider([b.dataset.devalider], 'DEVALIDER'));
     $$('[data-corriger]').forEach(b => b.onclick = () => aller(`/chef-journee/${date}/${encodeURIComponent(b.dataset.corriger)}`));
     $$('[data-saisir]').forEach(b => b.onclick = () => aller(`/chef-journee/${date}/${encodeURIComponent(b.dataset.saisir)}`));
     $$('[data-corriger-interim]').forEach(b => b.onclick = () => aller(`/interimaire/${date}/-/${encodeURIComponent(b.dataset.corrigerInterim)}`));
-    $('#toutValider').onclick = () => decider(aValider.map(m => m.personne), 'VALIDER');
+    $('#toutValider').onclick = () => validerApresConfirmation(aValider.map(m => m.personne));
   };
 
   const decider = async (personnes, decision) => {
@@ -2714,7 +2746,7 @@ ROUTES.bureau = async function (date) {
     const texte = {
       ENVOI: `<p class="discret">Verrouillé : plus de saisie ni de rapport ce jour-là.${j.points ? ` <b>Retenu : ${j.points} point(s) à corriger.</b>` : ''}</p>`,
       HORS_APPLI: `<p>${esc(j.horsAppli)}</p>`,
-      EN_COURS: `<p class="discret">Contrôlée à partir de ${esc(String(((stock.lire('ref') || {}).parametres || {}).controlesHeure || 18))} h (réglage CONTROLES_HEURE).</p>`,
+      EN_COURS: `<p class="discret">Contrôlée à partir de ${esc(String(heureControles()))} h (réglage CONTROLES_HEURE).</p>`,
       VIDE: '<p class="discret">Rien de saisi ni d\'attendu ce jour-là.</p>',
       HORS_CONTROLE: '<p class="discret">Jour antérieur à la mise en service (CONTROLES_DEPUIS) : lecture seule, il se traite hors appli.</p>',
     }[j.etat] || '';
@@ -2794,7 +2826,10 @@ ROUTES.bureau = async function (date) {
     // Version 51 : l'écran s'ouvre sur le jour affiché ; pas d'absence prévue depuis un jour clos (bouton masqué).
     if ($('#absencesPrevues')) $('#absencesPrevues').onclick = () => partir('/absences/' + date);
     $$('[data-bl-recents]').forEach(b => b.onclick = () => partir('/bl-bureau/' + date));
-    $$('[data-valider-chef]').forEach(b => b.onclick = () => agir({ date, quoi: 'CHEF', personnes: [b.dataset.validerChef] }));
+    // Version 66 : avant l'heure des contrôles, confirmation (la personne ne pourra plus modifier sa journée).
+    $$('[data-valider-chef]').forEach(b => b.onclick = async () => {
+      if (await confirmerValidationTot(date, [b.dataset.validerChef])) agir({ date, quoi: 'CHEF', personnes: [b.dataset.validerChef] });
+    });
     $('#sortir').onclick = demanderDeconnexion;
     $$('[data-justifier]').forEach(b => b.onclick = () => { justifOuvert = b.dataset.justifier; dessiner(); });
     $$('[data-fermer-justif]').forEach(b => b.onclick = () => { justifOuvert = null; dessiner(); });
