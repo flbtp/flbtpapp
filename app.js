@@ -12,7 +12,7 @@
  * Numéro affiché sur l'écran de connexion et l'écran bureau (plus sur l'accueil des gars : version 48).
  * À augmenter à chaque dépôt de nouveaux fichiers sur GitHub : c'est le seul numéro à changer.
  */
-const VERSION_APPLI = '66';
+const VERSION_APPLI = '67';
 
 // ---------------------------------------------------------------------------
 // Petits outils
@@ -133,6 +133,9 @@ function appel(action, donnees = {}, idEnvoi) {
  * et chaque envoi porte un identifiant (idEnvoi) que le serveur reconnaît s'il le reçoit deux fois.
  */
 const DELAI_ESSAI_MS = 25000;
+// Version 67 : la mise à jour de la rentabilité crée des fichiers par le relais (plusieurs secondes chacun) ; le serveur
+// s'arrête de lui-même vers 20 s (budget), mais finit le chantier commencé : on l'attend plus longtemps.
+const DELAIS_PARTICULIERS_MS = { bureau_rentabilite: 90000 };
 
 async function appelServeur(action, donnees, idEnvoi) {
   try {
@@ -149,7 +152,8 @@ function hote(url) { try { return new URL(url).hostname; } catch (e) { return '?
 async function unEssai(action, donnees, idEnvoi, essai) {
   const session = stock.lire('session');
   const ctrl = new AbortController();
-  const minuteur = setTimeout(() => ctrl.abort(), DELAI_ESSAI_MS);
+  const delai = DELAIS_PARTICULIERS_MS[action] || DELAI_ESSAI_MS;
+  const minuteur = setTimeout(() => ctrl.abort(), delai);
   const debut = Date.now();
   const nom = essai > 1 ? `${action} (2e essai)` : action;
   let rep, r;
@@ -174,7 +178,7 @@ async function unEssai(action, donnees, idEnvoi, essai) {
   } catch (e) {
     let err;
     if (e instanceof HorsReseau) err = e;
-    else if (e.name === 'AbortError') { err = new HorsReseau(`Le serveur n'a pas répondu en ${DELAI_ESSAI_MS / 1000} secondes.`); err.detail = 'délai dépassé'; }
+    else if (e.name === 'AbortError') { err = new HorsReseau(`Le serveur n'a pas répondu en ${delai / 1000} secondes.`); err.detail = 'délai dépassé'; }
     else if (e instanceof SyntaxError) { err = new HorsReseau("Le serveur a renvoyé une page d'erreur au lieu d'une réponse."); err.detail = `page d'erreur sur ${rep ? hote(rep.url) : '?'}`; err.relancable = true; }
     // Une erreur Google arrive souvent sous forme de page illisible par le navigateur : elle ressemble à une coupure réseau.
     else if (navigator.onLine) { err = new HorsReseau("Le serveur n'a pas répondu correctement."); err.detail = `requête bloquée (${e.name})`; err.relancable = true; }
@@ -2812,6 +2816,7 @@ ROUTES.bureau = async function (date) {
       </div>`}
       ${verrou() ? '' : '<button class="btn btn-ajout btn-petit" type="button" id="absencesPrevues">Absences prévues (congés, maladie, fériés…)</button>'}
       <button class="btn btn-ajout btn-petit" type="button" id="blRecents" data-bl-recents>BL récents (tous les bons de livraison)</button>
+      <button class="btn btn-ajout btn-petit" type="button" id="rentabilite">Rentabilité des chantiers</button>
 
       <div class="pied">
         <button type="button" class="version" onclick="aller('/diagnostic')">Version ${esc(VERSION_APPLI)}</button>
@@ -2826,6 +2831,7 @@ ROUTES.bureau = async function (date) {
     // Version 51 : l'écran s'ouvre sur le jour affiché ; pas d'absence prévue depuis un jour clos (bouton masqué).
     if ($('#absencesPrevues')) $('#absencesPrevues').onclick = () => partir('/absences/' + date);
     $$('[data-bl-recents]').forEach(b => b.onclick = () => partir('/bl-bureau/' + date));
+    if ($('#rentabilite')) $('#rentabilite').onclick = () => partir('/rentabilite');      // version 67
     // Version 66 : avant l'heure des contrôles, confirmation (la personne ne pourra plus modifier sa journée).
     $$('[data-valider-chef]').forEach(b => b.onclick = async () => {
       if (await confirmerValidationTot(date, [b.dataset.validerChef])) agir({ date, quoi: 'CHEF', personnes: [b.dataset.validerChef] });
@@ -2951,7 +2957,10 @@ function htmlCompteRenduJour(c, avecDate) {
   </div>`;
 }
 
-/** Version 59 : le bloc rentabilité du compte rendu de l'envoi (fichiers créés, lignes écrites, matériaux sans prix, échecs). */
+/**
+ * Version 59 : le bloc rentabilité (fichiers créés, lignes écrites, matériaux sans prix, échecs). Version 67 : compte
+ * rendu de l'écran « Rentabilité des chantiers » (plus de l'envoi en paie), cumulé sur les passages enchaînés.
+ */
 function htmlCompteRenduRenta(x) {
   if (!x) return '';
   if (!x.actif) return `<p class="discret">Rentabilité : ${esc(x.message || 'inactive')}</p>`;
@@ -2959,12 +2968,69 @@ function htmlCompteRenduRenta(x) {
   const rien = !x.journees && !x.materiaux && !x.bl && !x.avancement && !(x.fichiersCrees || []).length;
   const echecs = x.echecs || [], sansPrix = x.sansPrix || [];
   return `<div class="cr-renta">
-    <p><b>Rentabilité</b> : ${rien ? 'rien à écrire' : `${n(x.journees, 'ligne')} d'heures, ${n(x.materiaux, 'matériau')}, ${n(x.bl, 'BL')}, ${n(x.avancement, 'avancement')} écrits dans les fichiers de rentabilité`}${x.reste ? ` — ${n(x.reste, 'journée')} en attente du prochain envoi` : ''}.</p>
+    <p><b>Rentabilité</b> : ${rien ? 'rien à écrire' : `${n(x.journees, 'ligne')} d'heures, ${n(x.materiaux, 'matériau')}, ${n(x.bl, 'BL')}, ${n(x.avancement, 'avancement')} écrits dans les fichiers de rentabilité`}${x.reste ? ` — ${n(x.reste, 'élément')} en attente : relancer la mise à jour` : ''}.</p>
     ${(x.fichiersCrees || []).length ? `<p><b>Fichiers créés</b></p><ul class="points">${x.fichiersCrees.map(f => `<li>${esc(f)}</li>`).join('')}</ul>` : ''}
     ${sansPrix.length ? `<p><b>Matériaux sans prix</b> (à compléter dans la colonne PU de l'onglet MATERIAUX du planning, et dans le fichier du chantier)</p><ul class="points">${sansPrix.map(m => `<li>${esc(m)}</li>`).join('')}</ul>` : ''}
-    ${echecs.length ? `<p class="rouge"><b>Rentabilité non écrite</b> (repartira au prochain envoi)</p><ul class="points">${echecs.map(e => `<li><b>${esc(e.chantier)}</b> : ${esc(e.erreur)}</li>`).join('')}</ul>` : ''}
+    ${echecs.length ? `<p class="rouge"><b>Rentabilité non écrite</b> (repartira à la prochaine mise à jour)</p><ul class="points">${echecs.map(e => `<li><b>${esc(e.chantier)}</b> : ${esc(e.erreur)}</li>`).join('')}</ul>` : ''}
   </div>`;
 }
+
+/**
+ * Version 67 : écran « Rentabilité des chantiers » du bureau. La mise à jour est à part de l'envoi en paie : chaque
+ * appel `bureau_rentabilite` est un passage (le serveur s'arrête vers 20 s) ; l'écran enchaîne les passages tant qu'il
+ * en reste, sans échec, et que le précédent a écrit ou marqué quelque chose, 10 au plus, et cumule leurs comptes rendus. Rejouable : rien n'est écrit
+ * deux fois dans un fichier de chantier.
+ */
+const RENTA_PASSAGES_MAX = 10;
+
+function cumulerRenta(total, x) {
+  if (!total) return Object.assign({}, x, { fichiersCrees: [...(x.fichiersCrees || [])], sansPrix: [...(x.sansPrix || [])] });
+  ['journees', 'materiaux', 'bl', 'avancement'].forEach(k => { total[k] = (total[k] || 0) + (x[k] || 0); });
+  total.fichiersCrees = [...total.fichiersCrees, ...(x.fichiersCrees || [])];
+  total.sansPrix = [...new Set([...total.sansPrix, ...(x.sansPrix || [])])];
+  Object.assign(total, { actif: x.actif, message: x.message, echecs: x.echecs || [], reste: x.reste || 0 });
+  return total;
+}
+
+ROUTES.rentabilite = async function () {
+  const toujoursIci = ecranCourant();
+  if (!(stock.lire('session') || {}).bureau) return aller('/accueil');
+  const retour = (stock.lire('retourBureau') || {}).date || '';
+  let compte = null, passage = 0, enCours = false;
+  const dessiner = () => {
+    APP().innerHTML = `
+      <div class="entete">
+        <button class="retour" type="button" aria-label="Retour" onclick="aller('/bureau${retour ? '/' + retour : ''}')">${ICONES.retour}</button>
+        <div><h1>Rentabilité des chantiers</h1><p class="discret">Fichiers de rentabilité de chaque chantier</p></div>
+      </div>
+      <section class="bloc">
+        <p>Recopie dans le fichier de rentabilité de chaque chantier ce qui a déjà été envoyé en paie (heures), les matériaux et l'avancement des rapports, et les BL. Les fichiers des nouveaux chantiers sont créés au passage.</p>
+        <p class="discret">Rien n'est écrit deux fois : la mise à jour peut être relancée autant de fois que nécessaire.</p>
+      </section>
+      ${compte ? `<section class="bloc" id="compteRenduRenta"><div class="bloc-titre">Compte rendu${passage > 1 ? ` (${passage} passages)` : ''}</div>${htmlCompteRenduRenta(compte)}</section>` : ''}
+      <button class="btn btn-principal" type="button" id="majRenta" ${enCours ? 'disabled' : ''}>${enCours
+        ? `Mise à jour de la rentabilité…${passage > 1 ? ` (passage ${passage})` : ''}` : 'Mettre à jour la rentabilité'}</button>`;
+    $('#majRenta').onclick = async () => {
+      enCours = true; compte = null; passage = 0;
+      try {
+        while (passage < RENTA_PASSAGES_MAX && toujoursIci()) {
+          passage++;
+          if (toujoursIci()) dessiner();
+          const r = await appel('bureau_rentabilite');
+          compte = cumulerRenta(compte, r.renta || {});
+          const x = r.renta || {};
+          // Un passage qui n'a rien écrit ni rien marqué n'avance plus : inutile d'en relancer un autre.
+          const fait = (x.journees || 0) + (x.materiaux || 0) + (x.bl || 0) + (x.avancement || 0) + (x.fichiersCrees || []).length
+            + (x.marquees || 0) + (x.rapports || 0) + (x.bls || 0);
+          if (!x.actif || (x.echecs || []).length || !x.reste || !fait) break;
+        }
+      } catch (err) { toast(err.message); }
+      enCours = false;
+      if (toujoursIci()) dessiner();
+    };
+  };
+  dessiner();
+};
 
 /** Les jours d'une étape de la chaîne de paie (« complets, à cocher » ou « dans l'envoi »), toutes dates confondues. */
 ROUTES.paie = async function (etape) {
@@ -2985,7 +3051,7 @@ ROUTES.paie = async function (etape) {
       <p>${r.ecrites} journée${r.ecrites > 1 ? 's' : ''} et ${r.absences || 0} absence${(r.absences || 0) > 1 ? 's' : ''} écrites dans le Suivi RH.</p>
       ${(r.jours || []).map(c => htmlCompteRenduJour(c, true)).join('')}
       ${non.length ? `<p class="rouge"><b>Jours non envoyés (point à corriger)</b></p><ul class="points">${non.map(x => `<li><b>${esc(dateLongue(x.date))}</b> : ${esc(x.texte)}</li>`).join('')}</ul>` : ''}
-      ${htmlCompteRenduRenta(r.renta)}
+      ${r.ecrites ? `<p class="discret">Rentabilité : à mettre à jour à part, <button class="lien" type="button" data-aller-renta>Rentabilité des chantiers</button>.</p>` : ''}
     </section>`;
   };
   const dessiner = () => {
@@ -3015,6 +3081,7 @@ ROUTES.paie = async function (etape) {
       ${etape === 'ENVOI' ? `<button class="btn ${P.jours ? 'btn-principal' : 'btn-sombre'}" type="button" id="importer" ${P.jours ? '' : 'disabled'}>
           Envoyer dans le Suivi RH${P.jours ? ` (${P.jours} jour${P.jours > 1 ? 's' : ''})` : ''}</button>` : ''}`;
     $$('[data-ouvrir-jour]').forEach(b => b.onclick = () => aller('/bureau/' + b.dataset.ouvrirJour));
+    $$('[data-aller-renta]').forEach(b => b.onclick = () => aller('/rentabilite'));      // version 67
     $$('[data-cocher]').forEach(b => b.onclick = async () => {
       $$('button').forEach(x => { x.disabled = true; });
       if (await paieJour(b.dataset.cocher, 'COCHER')) await recharger();
