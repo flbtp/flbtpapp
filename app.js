@@ -1791,7 +1791,8 @@ ROUTES.rapport = async function (param) {
       libelle: c.libelle, client: c.client, commune: c.commune, remarques: c.remarques || '', hors: !!c.hors, declarePar: c.declarePar || [],
       // Version 68 : toutes les tâches sont en % (ordre du serveur) ; une tâche ajoutée arrive en bas.
       avancement: c.avancement.map(x => ({ ...x })),
-      materiaux: c.materiaux.map(x => ({ ...x })),
+      // Version 68 : la quantité du jour d'un matériau vaut 0 par défaut (le total est toujours affiché).
+      materiaux: c.materiaux.map(x => ({ ...x, quantite: x.quantite === undefined || x.quantite === null || String(x.quantite).trim() === '' ? '0' : x.quantite })),
       bl: c.bl, photos: [],
     })),
     ouvert: 0,
@@ -1802,6 +1803,8 @@ ROUTES.rapport = async function (param) {
   const nombre = x => String(Math.round(Number(x) * 1000) / 1000).replace('.', ',');
   const valeurDuJour = q => { const t = String(q ?? '').trim(); if (!t) return null; const n = Number(t.replace(',', '.')); return Number.isFinite(n) ? n : null; };
   const aSaisi = q => String(q ?? '').trim() !== '';
+  // Version 68 : liseré « saisie » et total en vert seulement pour une quantité du jour au-dessus de 0 (0 = valeur par défaut).
+  const positif = q => (valeurDuJour(q) || 0) > 0;
   // Version 62 : une case de quantité n'accepte que des chiffres et un seul séparateur décimal (le point devient une virgule),
   // pendant la frappe comme au collage. Avant, « 5a » sur une ligne reprise était ignoré sans rien dire par le serveur.
   const nettoyerQuantite = v => { const t = String(v).replace(/\./g, ',').replace(/[^0-9,]/g, ''); const i = t.indexOf(','); return i < 0 ? t : t.slice(0, i + 1) + t.slice(i + 1).replace(/,/g, ''); };
@@ -1816,24 +1819,26 @@ ROUTES.rapport = async function (param) {
   const estFinie = t => !!t.avant && Number(t.avant.pourcentage) >= 100 && !t.duJour && !t.rouverte;
   // Intitulé des colonnes, une fois au-dessus de la liste.
   const enteteAujourdhui = () => '<div class="eq-tete"><span>Déjà</span><span></span><span>Aujourd\'hui</span><span></span><span>Total</span></div>';
-  // Total = cumul d'avant + quantité du jour lisible ; « — » sans saisie. Nombres sans unité : l'unité est dans le champ du jour.
-  const texteTotal = (cumul, q) => { const n = valeurDuJour(q); return n === null ? '—' : nombre(Number(cumul) + n); };
-  // « 26,75 au 01/10 + [ 20 m3 ] = 46,75 » : la date reste attachée au cumul d'avant.
-  const ligneEq = (cumul, dateAvant, q, champ) => `
+  // Total = cumul d'avant + quantité du jour lisible, toujours affiché (version 68 : case vide ou illisible = 0 ; avant, « — »).
+  const texteTotal = (cumul, q) => nombre(Number(cumul) + (valeurDuJour(q) || 0));
+  // Version 68 : l'unité est après le total (avant : dans le champ du jour).
+  const somme = (cumul, q, unite) => `<span class="somme"><span class="somme-val">${texteTotal(cumul, q)}</span><span class="unite-fixe">${esc(unite || '')}</span></span>`;
+  // « 26,75 au 01/10 + [ 20 ] = 46,75 m3 » : la date reste attachée au cumul d'avant.
+  const ligneEq = (cumul, dateAvant, q, champ, unite) => `
           <div class="eq">
             <span class="deja" data-cumul="${esc(String(cumul))}"><b>${esc(nombre(cumul))}</b><small>au ${dateCourte(dateAvant)}</small></span>
             <span class="op">+</span>${champ}<span class="op">=</span>
-            <span class="somme${valeurDuJour(q) === null ? ' vide' : ''}">${texteTotal(cumul, q)}</span>
+            ${somme(cumul, q, unite)}
           </div>`;
-  const champQteMat = (i, k, m) => `<div class="qte"><input type="text" inputmode="decimal" aria-label="Quantité utilisée aujourd'hui" value="${esc(m.quantite === undefined || m.quantite === null ? '' : String(m.quantite).replace('.', ','))}" data-ch="${i}" data-mat="${k}" data-k="quantite"><span class="unite-fixe">${esc(m.unite || '')}</span></div>`;
+  const champQteMat = (i, k, m) => `<div class="qte"><input type="text" inputmode="decimal" aria-label="Quantité utilisée aujourd'hui" value="${esc(m.quantite === undefined || m.quantite === null ? '' : String(m.quantite).replace('.', ','))}" data-ch="${i}" data-mat="${k}" data-k="quantite"></div>`;
   // Ligne nouvelle (matériau choisi) : même colonnes, étiquette « Nouveau » à la place du cumul.
-  const ligneEqNouveau = (q, champ) => `
+  const ligneEqNouveau = (q, champ, unite) => `
           <div class="eq">
             <span class="deja" data-cumul="0"><span class="tag-nouveau">Nouveau</span></span>
             <span class="op">+</span>${champ}<span class="op">=</span>
-            <span class="somme${valeurDuJour(q) === null ? ' vide' : ''}">${texteTotal(0, q)}</span>
+            ${somme(0, q, unite)}
           </div>`;
-  const ligneQteNouveau = (i, k, m) => ligneEqNouveau(m.quantite, champQteMat(i, k, m));
+  const ligneQteNouveau = (i, k, m) => ligneEqNouveau(m.quantite, champQteMat(i, k, m), m.unite);
   const pisteCurseur = (v, avant) => {
     const bas = Math.min(v, avant), haut = Math.max(v, avant), milieu = v >= avant ? 'var(--jaune)' : 'var(--rouge-moyen)';
     return `linear-gradient(90deg, var(--encre) 0 ${bas}%, ${milieu} ${bas}% ${haut}%, var(--creux) ${haut}% 100%)`;
@@ -1885,11 +1890,11 @@ ROUTES.rapport = async function (param) {
       ${c.materiaux.length ? enteteAujourdhui() : ''}
       ${c.materiaux.map((m, k) => {
         // Version 58 : un matériau déjà déclaré sur ce chantier garde son nom et son unité (celle du référentiel), sans « × ».
-        // Version 62 : « déjà + aujourd'hui = total » sur la ligne, l'unité dans le champ du jour.
+        // Version 62 : « déjà + aujourd'hui = total » sur la ligne. Version 68 : 0 par défaut, l'unité après le total.
         const suppr = `<button class="suppr" type="button" data-suppr-mat="${i}-${k}" aria-label="Retirer le matériau">×</button>`;
         if (m.avant) return `
-        <div class="ligne ligne-cumul materiau-repris${aSaisi(m.quantite) ? ' saisie' : ''}">
-          <span class="nom">${esc(m.materiau)}</span>${ligneEq(m.avant.cumul, m.avant.date, m.quantite, champQteMat(i, k, m))}
+        <div class="ligne ligne-cumul materiau-repris${positif(m.quantite) ? ' saisie' : ''}">
+          <span class="nom">${esc(m.materiau)}</span>${ligneEq(m.avant.cumul, m.avant.date, m.quantite, champQteMat(i, k, m), m.unite)}
         </div>`;
         if (m.inactif) return `
         <div class="ligne">
@@ -1899,7 +1904,7 @@ ROUTES.rapport = async function (param) {
         // Version 61 : un matériau nouveau se cherche en tapant un morceau de son nom ; la ligne ajoutée arrive vide.
         // Version 62 : la quantité n'apparaît qu'une fois le matériau choisi.
         return `
-        <div class="ligne materiau-nouveau${m.materiau && aSaisi(m.quantite) ? ' saisie' : ''}">
+        <div class="ligne materiau-nouveau${m.materiau && positif(m.quantite) ? ' saisie' : ''}">
           <div class="cherche">
             <input type="search" autocomplete="off" enterkeyhint="search" aria-label="Matériau" placeholder="Matériau : tape un morceau du nom"
               value="${esc(m.materiau || m.recherche || '')}" data-cherche="${i}-${k}"${m.materiau ? ' data-choisi="1"' : ''}>
@@ -1975,15 +1980,24 @@ ROUTES.rapport = async function (param) {
 
     // Version 62 : liseré « saisi » et total (déjà + aujourd'hui) mis à jour pendant la frappe, sans redessiner.
     const majCumul = (ligne, q) => {
-      ligne.classList.toggle('saisie', aSaisi(q));
-      const deja = ligne.querySelector('.deja'), total = ligne.querySelector('.somme');
-      if (deja && total) { total.textContent = texteTotal(deja.dataset.cumul, q); total.classList.toggle('vide', valeurDuJour(q) === null); }
+      ligne.classList.toggle('saisie', positif(q));
+      const deja = ligne.querySelector('.deja'), total = ligne.querySelector('.somme .somme-val');
+      if (deja && total) total.textContent = texteTotal(deja.dataset.cumul, q);
     };
-    const brancherMat = el => el.oninput = el.onchange = () => {
-      const c = e.chantiers[+el.dataset.ch], m = c.materiaux[+el.dataset.mat];
-      if (el.dataset.k === 'quantite') filtrerQuantite(el);
-      m[el.dataset.k] = el.value;
-      if (el.dataset.k === 'quantite') majCumul(el.closest('.ligne'), el.value);
+    const brancherMat = el => {
+      const m = () => e.chantiers[+el.dataset.ch].materiaux[+el.dataset.mat];
+      el.oninput = el.onchange = () => {
+        if (el.dataset.k === 'quantite') filtrerQuantite(el);
+        m()[el.dataset.k] = el.value;
+        if (el.dataset.k === 'quantite') majCumul(el.closest('.ligne'), el.value);
+      };
+      if (el.dataset.k !== 'quantite') return;
+      // Version 68 : toucher la case sélectionne sa valeur (le chiffre tapé remplace le 0) ; vidée, elle revient à 0 en la quittant.
+      el.onfocus = () => { el.select(); setTimeout(() => { try { if (document.activeElement === el) el.setSelectionRange(0, el.value.length); } catch (err) { /* champ sans sélection */ } }, 0); };
+      el.onblur = () => {
+        if (String(el.value).trim() !== '') return;
+        el.value = '0'; m().quantite = '0'; majCumul(el.closest('.ligne'), '0');
+      };
     };
     $('#resto').oninput = ev => { e.restaurant = ev.target.value; };
     const majRepas = () => { $('#nbRepas').textContent = e.repasPayes; if ($('#repasEquipe')) $('#repasEquipe').innerHTML = texteRepasEquipe(); };
@@ -2008,7 +2022,7 @@ ROUTES.rapport = async function (param) {
     $$('[data-finies]').forEach(el => el.ontoggle = () => { e.chantiers[+el.dataset.finies].finiesOuvertes = el.open; });
     // Version 61 : recherche d'un matériau nouveau. Taper efface le choix précédent ; toucher un résultat le choisit ;
     // en quittant le champ, un nom tapé en entier (au sens de la recherche) est retenu tel quel.
-    const choisirMateriau = (m, nom) => { m.materiau = nom; m.unite = unites[nom] || ''; delete m.recherche; };
+    const choisirMateriau = (m, nom) => { m.materiau = nom; m.unite = unites[nom] || ''; m.quantite = '0'; delete m.recherche; };   // version 68 : quantité à 0
     $$('[data-cherche]').forEach(el => {
       const [i, k] = el.dataset.cherche.split('-').map(Number);
       const c = e.chantiers[i], m = c.materiaux[k];
@@ -2044,8 +2058,7 @@ ROUTES.rapport = async function (param) {
         if (exact && !c.materiaux.some((x, n) => n !== k && x.materiau === exact.materiau)) {
           choisirMateriau(m, exact.materiau);                  // sur place, sans redessiner : le champ suivant garde la main
           el.value = exact.materiau; el.dataset.choisi = '1';
-          // Version 62 : la ligne de quantité apparaît ici, la quantité repartant de vide.
-          m.quantite = '';
+          // Version 62 : la ligne de quantité apparaît ici (version 68 : à 0, posé par choisirMateriau).
           el.closest('.materiau-nouveau').insertAdjacentHTML('beforeend', ligneQteNouveau(i, k, m));
           brancherMat($(`[data-ch="${i}"][data-mat="${k}"][data-k="quantite"]`));
         }

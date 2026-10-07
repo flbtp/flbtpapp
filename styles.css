@@ -181,13 +181,12 @@ input[type=search] { -webkit-appearance: none; appearance: none; }
 .tag-nouveau { align-self: flex-start; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0; background: var(--encre); color: #fff; border-radius: 5px; padding: 2px 5px; white-space: nowrap; }
 .eq .op { text-align: center; font-weight: 700; color: var(--gris); }
 .eq .somme { font-weight: 500; font-size: 16px; color: var(--gris); white-space: nowrap; font-variant-numeric: tabular-nums; }
-.eq .somme.vide { color: #B4AFA4; font-weight: 600; }
 .ligne.saisie .eq .somme { color: var(--vert); font-weight: 700; }
 .qte { position: relative; display: flex; align-items: center; min-width: 0; }
-.qte input[type=text] { text-align: right; padding: 0 38px 0 10px; font-weight: 700; font-size: 19px; }
-/* Version 58 : unité du référentiel, affichée, jamais choisie (version 62 : dans le champ). */
+.qte input[type=text] { text-align: right; padding: 0 10px; font-weight: 700; font-size: 19px; }
+/* Version 58 : unité du référentiel, affichée, jamais choisie (version 62 : dans le champ ; version 68 : après le total). */
 .unite-fixe { font-weight: 600; color: var(--gris); white-space: nowrap; }
-.qte .unite-fixe { position: absolute; right: 10px; font-size: 15px; pointer-events: none; }
+.eq .somme .unite-fixe { margin-left: 4px; font-size: 14px; font-weight: 600; color: var(--gris); }
 /* Tâche en % : état d'avant (encre), gain du jour (jaune) ou recul (rouge moyen). */
 .pct-tete { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .pct-val { white-space: nowrap; }
