@@ -188,8 +188,6 @@ input[type=search] { -webkit-appearance: none; appearance: none; }
 /* Version 58 : unité du référentiel, affichée, jamais choisie (version 62 : dans le champ). */
 .unite-fixe { font-weight: 600; color: var(--gris); white-space: nowrap; }
 .qte .unite-fixe { position: absolute; right: 10px; font-size: 15px; pointer-events: none; }
-/* Tâche nouvelle en quantité : unité choisie par boutons (sans présélection), quantité dans la colonne des autres lignes. */
-.choix.unites button { min-height: 40px; font-size: 15px; }
 /* Tâche en % : état d'avant (encre), gain du jour (jaune) ou recul (rouge moyen). */
 .pct-tete { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .pct-val { white-space: nowrap; }
